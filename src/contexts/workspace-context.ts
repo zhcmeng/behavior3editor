@@ -1,3 +1,19 @@
+/**
+ * 工作区上下文（Workspace Context）
+ * 
+ * 这是整个行为树编辑器的核心状态管理模块，负责：
+ * 1. 管理工作区（Workspace）和项目（Project）
+ * 2. 管理所有打开的编辑器（EditorStore）
+ * 3. 管理文件树和文件元数据
+ * 4. 处理文件的打开、保存、关闭等操作
+ * 5. 管理节点定义和变量声明
+ * 6. 监听文件系统变化
+ * 
+ * 使用的设计模式：
+ * - Store Pattern: 使用 Zustand 管理全局状态
+ * - Observer Pattern: 监听文件系统变化
+ * - Singleton Pattern: 全局唯一的工作区实例
+ */
 import { BrowserWindow, dialog } from "@electron/remote";
 import { ipcRenderer } from "electron";
 import * as fs from "fs";
@@ -13,42 +29,115 @@ import { zhNodeDef } from "../misc/template";
 import { readJson, readTree, readWorkspace, writeJson, writeTree } from "../misc/util";
 import { useSetting } from "./setting-context";
 
+/**
+ * 全局构建目录缓存
+ * 
+ * 保存上次选择的构建目录，避免每次构建都要重新选择
+ */
 let buildDir: string | undefined;
 
+/**
+ * 编辑器事件类型
+ * 
+ * 定义了编辑器可以触发的所有事件，用于组件间通信
+ * 
+ * 事件分类：
+ * - 文件操作: close, save, reload
+ * - 编辑操作: copy, paste, replace, delete, insert
+ * - 导航操作: jumpNode, searchNode
+ * - 撤销重做: undo, redo
+ * - 刷新操作: refresh, updateTree, updateNode
+ * - 其他操作: rename, editSubtree, saveAsSubtree, clickVar
+ */
 export type EditEvent =
-  | "close"
-  | "save"
-  | "copy"
-  | "paste"
-  | "replace"
-  | "delete"
-  | "insert"
-  | "jumpNode"
-  | "undo"
-  | "redo"
-  | "refresh"
-  | "rename"
-  | "reload"
-  | "updateTree"
-  | "updateNode"
-  | "searchNode"
-  | "editSubtree"
-  | "saveAsSubtree"
-  | "clickVar";
+  | "close"           // 关闭编辑器
+  | "save"            // 保存文件
+  | "copy"            // 复制节点
+  | "paste"           // 粘贴节点
+  | "replace"         // 替换节点
+  | "delete"          // 删除节点
+  | "insert"          // 插入节点
+  | "jumpNode"        // 跳转到节点
+  | "undo"            // 撤销操作
+  | "redo"            // 重做操作
+  | "refresh"         // 刷新视图
+  | "rename"          // 重命名
+  | "reload"          // 重新加载文件
+  | "updateTree"      // 更新行为树
+  | "updateNode"      // 更新节点
+  | "searchNode"      // 搜索节点
+  | "editSubtree"     // 编辑子树
+  | "saveAsSubtree"   // 另存为子树
+  | "clickVar";       // 点击变量
 
+/**
+ * 编辑器存储类（EditorStore）
+ * 
+ * 表示一个打开的行为树文件的编辑器实例
+ * 每个打开的 .json 文件都对应一个 EditorStore
+ * 
+ * 职责：
+ * - 加载和保存行为树文件
+ * - 跟踪文件修改状态
+ * - 管理变量声明
+ * - 处理文件变更检测
+ * - 分发编辑事件
+ * 
+ * 生命周期：
+ * 1. 用户打开文件 -> 创建 EditorStore
+ * 2. 编辑过程中 -> 更新 changed 状态
+ * 3. 用户关闭文件 -> 销毁 EditorStore
+ */
 export class EditorStore {
+  /** 文件的完整路径 */
   path: string;
+  
+  /** 行为树数据（JSON 结构） */
   data: TreeData;
 
+  /** 
+   * 变量声明信息
+   * 
+   * 包含：
+   * - import: 导入的其他树的变量
+   * - subtree: 子树的变量
+   * - vars: 当前树定义的变量
+   */
   declare: FileVarDecl;
 
+  /** 文件是否已修改（未保存） */
   changed: boolean = false;
+  
+  /** 文件的最后修改时间（毫秒时间戳） */
   mtime: number;
+  
+  /** 是否需要提示重新加载（文件在外部被修改时） */
   alertReload: boolean = false;
+  
+  /** 当前聚焦的节点 ID */
   focusId?: string | null;
 
+  /** 
+   * 事件分发函数
+   * 
+   * 用于向编辑器组件发送事件，例如：
+   * - dispatch("save") - 保存文件
+   * - dispatch("refresh") - 刷新视图
+   * - dispatch("reload") - 重新加载文件
+   */
   dispatch?: (event: EditEvent, data?: unknown) => void;
 
+  /**
+   * 构造函数
+   * 
+   * @param path - 行为树文件路径
+   * 
+   * 初始化流程：
+   * 1. 读取文件内容
+   * 2. 设置文件名
+   * 3. 记录修改时间
+   * 4. 初始化变量声明
+   */
   constructor(path: string) {
     this.path = path;
     this.data = readTree(path);
@@ -62,121 +151,338 @@ export class EditorStore {
   }
 }
 
+/**
+ * 文件树节点类型
+ * 
+ * 用于在侧边栏展示文件树结构
+ * 支持文件和文件夹的递归显示
+ * 
+ * 使用场景：
+ * - Explorer 组件的文件树
+ * - 文件导航和浏览
+ */
 export type FileTreeType = {
+  /** 文件/文件夹的完整路径 */
   path: string;
+  
+  /** 显示的标题（文件名或文件夹名） */
   title: string;
+  
+  /** 可选的图标（React 组件） */
   icon?: React.ReactNode;
+  
+  /** 描述信息 */
   desc?: string;
+  
+  /** 是否为叶子节点（文件） */
   isLeaf?: boolean;
+  
+  /** 子节点（文件夹包含的文件和子文件夹） */
   children?: FileTreeType[];
+  
+  /** 是否正在编辑（重命名状态） */
   editing?: boolean;
+  
+  /** 自定义样式 */
   style?: React.CSSProperties;
 };
 
+/**
+ * 正在编辑的节点信息
+ * 
+ * 当用户在属性面板中编辑节点时使用
+ * 包含节点数据和状态信息
+ */
 export type EditNode = {
+  /** 节点数据 */
   data: NodeData;
+  
+  /** 节点是否有错误（显示红色） */
   error?: boolean;
+  
+  /** 节点前缀（用于显示路径） */
   prefix: string;
+  
+  /** 节点是否被禁用 */
   disabled: boolean;
+  
+  /** 子树是否可编辑 */
   subtreeEditable?: boolean;
 };
 
+/**
+ * 正在编辑的节点定义
+ * 
+ * 当用户查看或编辑节点定义时使用
+ * 显示在属性面板中
+ */
 export type EditNodeDef = {
+  /** 节点定义数据 */
   data: NodeDef;
+  
+  /** 节点定义文件路径（如果来自外部文件） */
   path?: string;
 };
 
+/**
+ * 正在编辑的行为树信息
+ * 
+ * 当用户编辑树的全局属性时使用
+ * 包含树的元数据和设置
+ */
 export type EditTree = {
+  /** 树的名称 */
   name: string;
+  
+  /** 树的描述 */
   desc?: string;
+  
+  /** 是否导出（在构建时包含） */
   export?: boolean;
+  
+  /** 树的前缀（用于命名空间） */
   prefix?: string;
+  
+  /** 启用的节点分组 */
   group: string[];
+  
+  /** 导入的其他树 */
   import: ImportDecl[];
+  
+  /** 树定义的变量 */
   vars: VarDecl[];
+  
+  /** 子树列表 */
   subtree: ImportDecl[];
+  
+  /** 根节点 */
   root: NodeData;
 };
 
+/**
+ * 文件元数据
+ * 
+ * 存储在工作区配置中，用于：
+ * - 记录文件描述
+ * - 跟踪文件是否存在
+ * - 快速访问文件信息
+ */
 export type FileMeta = {
+  /** 文件路径（相对于工作区） */
   path: string;
+  
+  /** 文件描述 */
   desc?: string;
+  
+  /** 文件是否存在于磁盘 */
   exists?: boolean;
 };
 
+/**
+ * 工作区配置模型
+ * 
+ * 存储在 .b3-workspace 文件中的 JSON 结构
+ * 定义了工作区的设置和文件列表
+ */
 export interface WorkspaceModel {
+  /** 工作区包含的所有文件 */
   files?: { path: string; desc: string }[];
+  
+  /** 工作区设置 */
   settings: {
+    /** 是否检查表达式语法 */
     checkExpr?: boolean;
+    
+    /** 构建脚本路径 */
     buildScript?: string;
   };
 }
 
+/**
+ * 工作区存储接口（WorkspaceStore）
+ * 
+ * 使用 Zustand 创建的全局状态管理 Store
+ * 这是整个应用的核心状态中心
+ * 
+ * 功能模块：
+ * 1. 项目管理: 创建、打开、构建项目
+ * 2. 文件管理: 打开、关闭、保存文件
+ * 3. 编辑器管理: 多标签页编辑
+ * 4. 节点管理: 节点定义和编辑
+ * 5. 文件系统监听: 自动检测文件变化
+ */
 export type WorkspaceStore = {
+  // ============ 项目操作 ============
+  
+  /** 初始化工作区（加载项目） */
   init: (project: string) => void;
+  
+  /** 创建新项目 */
   createProject: () => void;
+  
+  /** 打开已有项目 */
   openProject: (project?: string) => void;
+  
+  /** 批量处理项目（运行脚本） */
   batchProject: () => void;
+  
+  /** 构建项目（导出所有树） */
   buildProject: () => void;
 
+  // ============ 工作区状态 ============
+  
+  /** 工作区设置 */
   settings: WorkspaceModel["settings"];
+  
+  /** 工作目录（项目根目录） */
   workdir: string;
+  
+  /** 工作区文件路径（.b3-workspace） */
   path: string;
 
-  // settings
+  // ============ 设置操作 ============
+  
+  /** 设置是否检查表达式 */
   setCheckExpr: (checkExpr: boolean) => void;
+  
+  /** 设置构建脚本 */
   setupBuildScript: () => void;
 
+  // ============ 工作区文件操作 ============
+  
+  /** 加载工作区配置 */
   loadWorkspace: () => void;
+  
+  /** 保存工作区配置 */
   saveWorkspace: () => void;
+  
+  /** 更新文件元数据 */
   updateFileMeta: (editor: EditorStore) => void;
 
+  // ============ 文件和编辑器管理 ============
+  
+  /** 所有文件的元数据映射 */
   allFiles: Map<string, FileMeta>;
+  
+  /** 文件树结构（用于 UI 显示） */
   fileTree?: FileTreeType;
+  
+  /** 所有打开的编辑器 */
   editors: EditorStore[];
+  
+  /** 当前正在编辑的编辑器 */
   editing?: EditorStore;
 
+  /** 文件修改时间戳（用于触发刷新） */
   modifiedTime: number;
 
+  // ============ 搜索功能 ============
+  
+  /** 是否显示搜索面板 */
   isShowingSearch: boolean;
+  
+  /** 设置搜索面板显示状态 */
   onShowingSearch: (isShowingSearch: boolean) => void;
 
+  // ============ 编辑器操作 ============
+  
+  /** 打开文件（如果未打开则创建编辑器） */
   open: (path: string, focusId?: string) => void;
+  
+  /** 切换到指定文件的编辑器 */
   edit: (path: string, focusId?: string) => void;
+  
+  /** 关闭文件编辑器 */
   close: (path: string) => void;
+  
+  /** 查找指定路径的编辑器 */
   find: (path: string) => EditorStore | undefined;
+  
+  /** 获取相对于工作区的路径 */
   relative: (path: string) => string;
+  
+  /** 刷新编辑器（重新计算变量等） */
   refresh: (path: string) => void;
 
+  // ============ 保存操作 ============
+  
+  /** 保存当前文件 */
   save: () => void;
+  
+  /** 另存为 */
   saveAs: () => void;
+  
+  /** 保存所有文件 */
   saveAll: () => void;
 
+  // ============ 文件系统监听 ============
+  
+  /** 开始监听文件系统变化 */
   watch(): void;
+  
+  /** 加载所有行为树文件 */
   loadTrees: () => void;
 
+  // ============ 节点定义管理 ============
+  
+  /** 加载节点定义配置 */
   loadNodeDefs: () => void;
+  
+  /** 所有节点定义 */
   nodeDefs: b3util.NodeDefs;
+  
+  /** 所有分组定义 */
   groupDefs: string[];
+  
+  /** 当前启用的分组 */
   usingGroups: typeof b3util.usingGroups;
+  
+  /** 当前可用的变量 */
   usingVars: typeof b3util.usingVars;
 
-  // edit node
+  // ============ 编辑状态管理 ============
+  
+  /** 正在编辑的节点 */
   editingNode?: EditNode | null;
+  
+  /** 设置正在编辑的节点 */
   onEditingNode: (node: EditNode) => void;
 
-  // edit node def
+  /** 正在查看的节点定义 */
   editingNodeDef?: EditNodeDef | null;
+  
+  /** 设置正在查看的节点定义 */
   onEditingNodeDef: (node: EditNodeDef) => void;
 
-  // edit tree
+  /** 正在编辑的树属性 */
   editingTree?: EditTree | null;
+  
+  /** 设置正在编辑的树属性 */
   onEditingTree: (editor: EditorStore) => void;
 };
 
+/**
+ * 加载文件树（递归）
+ * 
+ * 从文件系统读取目录结构并构建文件树数据
+ * 用于在侧边栏 Explorer 组件中显示
+ * 
+ * @param workdir - 工作目录（项目根目录）
+ * @param filename - 相对于工作目录的文件/文件夹名
+ * @returns 文件树节点，如果文件不存在则返回 undefined
+ * 
+ * 递归逻辑：
+ * 1. 如果是文件夹：递归加载所有子文件和子文件夹
+ * 2. 如果是文件：标记为叶子节点
+ * 
+ * 排序规则：
+ * - 文件夹优先于文件
+ * - 同级按字母顺序排序
+ */
 const loadFileTree = (workdir: string, filename: string) => {
   const fullpath = Path.posixPath(`${workdir}/${filename}`);
 
+  // 跳过不存在的文件和 macOS 系统文件
   if (!fs.existsSync(fullpath) || filename.endsWith(".DS_Store")) {
     return;
   }
@@ -189,6 +495,7 @@ const loadFileTree = (workdir: string, filename: string) => {
   };
 
   if (stat.isDirectory()) {
+    // 处理文件夹：递归加载子项
     data.children = [];
     const files = fs.readdirSync(data.path);
     files.forEach((v) => {
@@ -197,6 +504,8 @@ const loadFileTree = (workdir: string, filename: string) => {
         data.children?.push(child);
       }
     });
+    
+    // 排序：文件夹在前，文件在后，同级按字母顺序
     data.children.sort((a, b) => {
       if ((a.children && b.children) || (!a.children && !b.children)) {
         return a.title.localeCompare(b.title);
@@ -205,26 +514,88 @@ const loadFileTree = (workdir: string, filename: string) => {
       }
     });
   } else {
+    // 处理文件：标记为叶子节点
     data.isLeaf = true;
   }
   return data;
 };
 
+/**
+ * 保存文件
+ * 
+ * 如果编辑器有未保存的修改，触发保存事件
+ * 
+ * @param editor - 编辑器实例
+ * 
+ * 使用场景：
+ * - 用户点击保存按钮
+ * - 自动保存
+ * - 关闭前保存
+ */
 const saveFile = (editor?: EditorStore) => {
   if (editor?.changed) {
     editor.dispatch?.("save");
   }
 };
 
+/**
+ * 工作区状态管理 Store
+ * 
+ * 使用 Zustand 创建的全局状态管理
+ * 这是整个应用的核心 Store，管理所有工作区相关的状态和操作
+ * 
+ * 架构设计：
+ * - 使用 Zustand 的 create 方法创建 store
+ * - 所有状态和方法都在一个对象中定义
+ * - 通过 set/get 函数更新和读取状态
+ * 
+ * 使用方式：
+ * ```typescript
+ * const workspace = useWorkspace();
+ * workspace.init(projectPath);
+ * workspace.open(filePath);
+ * ```
+ */
 export const useWorkspace = create<WorkspaceStore>((set, get) => ({
+  // ============ 初始状态 ============
+  
+  /** 所有文件的元数据映射 */
   allFiles: new Map(),
+  
+  /** 文件树结构 */
   fileTree: undefined,
+  
+  /** 所有打开的编辑器列表 */
   editors: [],
+  
+  /** 已修改的编辑器列表（废弃字段） */
   modifiedEditors: [],
+  
+  /** 工作目录路径 */
   workdir: "",
+  
+  /** 工作区文件路径 */
   path: "",
+  
+  /** 工作区设置 */
   settings: {},
 
+  /**
+   * 初始化工作区
+   * 
+   * 这是打开项目后的第一个调用，负责：
+   * 1. 加载工作区配置
+   * 2. 加载文件树
+   * 3. 加载节点定义
+   * 4. 恢复上次打开的文件
+   * 5. 开始监听文件系统变化
+   * 
+   * @param path - 工作区文件路径（.b3-workspace）
+   * 
+   * 调用时机：
+   * - 用户打开项目
+   * - 应用启动时恢复上次项目
+   */
   init: (path) => {
     const workspace = get();
     const setting = useSetting.getState();
@@ -370,9 +741,29 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => ({
     }
   },
 
+  /**
+   * 构建项目
+   * 
+   * 将所有行为树文件导出到构建目录
+   * 
+   * 构建流程：
+   * 1. 选择构建目录（如果未选择）
+   * 2. 保存所有未保存的文件
+   * 3. 调用 b3util.buildProject 执行构建
+   * 4. 显示构建结果
+   * 
+   * 构建过程：
+   * - 验证所有行为树
+   * - 导出为 JSON 文件
+   * - 可选：运行自定义构建脚本
+   * 
+   * @async
+   */
   buildProject: async () => {
     const workspace = get();
     const setting = useSetting.getState();
+    
+    // 选择构建目录
     if (workspace.path) {
       if (!buildDir) {
         buildDir = dialog.showOpenDialogSync({
@@ -381,13 +772,19 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => ({
         })?.[0];
       }
     }
+    
     if (buildDir) {
+      // 保存所有打开的文件
       for (const editor of workspace.editors) {
         editor.dispatch?.("save");
       }
+      
+      // 临时禁用 debug 输出
       const debug = console.debug;
       console.debug = () => {};
+      
       try {
+        // 执行构建
         const hasError = await b3util.buildProject(workspace.path, buildDir);
         if (hasError) {
           message.error(i18n.t("buildFailed"));
@@ -399,9 +796,13 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => ({
         console.error(error);
         message.error(i18n.t("buildFailed"));
       }
+      
+      // 刷新当前编辑器
       if (workspace.editing) {
         workspace.refresh(workspace.editing.path);
       }
+      
+      // 恢复 debug 输出
       console.debug = debug;
     }
   },
@@ -591,33 +992,65 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => ({
     }
   },
 
+  /**
+   * 监听文件系统变化
+   * 
+   * 使用 Node.js fs.watch 监听工作目录的所有文件变化
+   * 
+   * 监听事件：
+   * 1. **rename 事件**：文件/文件夹被创建、删除、重命名
+   *    - 防抖处理（200ms）
+   *    - 重新加载文件树
+   * 
+   * 2. **change 事件**：文件内容被修改
+   *    - node-config.b3-setting：重新加载节点定义
+   *    - 其他文件：检查是否需要重新加载编辑器
+   * 
+   * 文件变更处理：
+   * - 如果编辑器有未保存修改：提示重新加载
+   * - 如果编辑器无修改：自动重新加载
+   * 
+   * 注意事项：
+   * - 使用 500ms 延迟避免保存时误触发
+   * - 递归监听整个工作目录
+   */
   watch: () => {
     try {
       const workspace = get();
       let hasEvent = false;
+      
       fs.watch(workspace.workdir, { recursive: true }, (event, filename) => {
+        // 处理文件重命名事件（创建、删除、重命名）
         if (event === "rename") {
           if (!hasEvent) {
             setTimeout(() => {
               workspace.loadTrees();
               hasEvent = false;
-            }, 200);
+            }, 200); // 防抖：200ms 内多次事件只处理一次
             hasEvent = true;
           }
         }
+        
+        // 处理文件内容变更事件
         if (filename && (event === "change" || workspace.allFiles.has(filename))) {
           if (filename === "node-config.b3-setting") {
+            // 节点配置文件变更：重新加载节点定义
             workspace.loadNodeDefs();
           } else {
+            // 行为树文件变更：检查编辑器状态
             const fullpath = Path.posixPath(`${workspace.workdir}/${filename}`);
             const editor = workspace.find(fullpath);
             const modified = fs.statSync(fullpath).mtimeMs;
             b3util.files[Path.posixPath(filename)] = modified;
+            
             if (editor && editor.mtime + 500 < modified) {
+              // 500ms 延迟避免保存时误触发
               if (editor.changed) {
+                // 有未保存修改：提示重新加载
                 editor.alertReload = true;
                 set({ modifiedTime: Date.now() });
               } else {
+                // 无修改：自动重新加载
                 editor.dispatch?.("reload");
               }
             }
@@ -629,8 +1062,32 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => ({
     }
   },
 
+  /**
+   * 加载文件树
+   * 
+   * 扫描工作目录的所有文件并更新文件树和元数据
+   * 
+   * 处理流程：
+   * 1. 递归加载文件树结构
+   * 2. 收集所有行为树文件（.json）
+   * 3. 更新文件元数据（路径、描述、存在性）
+   * 4. 清理已删除的文件
+   * 5. 更新修改时间缓存
+   * 
+   * 文件元数据管理：
+   * - 新文件：添加到 allFiles
+   * - 已删除文件：从 allFiles 移除
+   * - 描述信息：从 JSON 文件读取
+   * 
+   * 调用时机：
+   * - 初始化工作区
+   * - 文件系统 rename 事件触发
+   * - 用户手动刷新
+   */
   loadTrees: () => {
     const workspace = get();
+    
+    // 加载文件树结构
     const data = loadFileTree(workspace.workdir, ".")!;
     data.title = Path.basename(workspace.workdir).toUpperCase();
     data.style = {
@@ -639,21 +1096,31 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => ({
     };
     set({ fileTree: data });
 
+    // 更新文件元数据
     const allFiles = workspace.allFiles;
     let updated = false;
+    
+    // 标记所有文件为不存在（稍后重新标记）
     allFiles.forEach((file) => (file.exists = false));
+    
+    // 递归收集所有行为树文件
     const collect = (fileNode?: FileTreeType) => {
       if (fileNode?.isLeaf && b3util.isTreeFile(fileNode.path)) {
         const path = workspace.relative(fileNode.path);
         let fileMeta = allFiles.get(path);
+        
         if (!fileMeta) {
+          // 新文件：添加元数据
           fileMeta = { path: fileNode.path };
           allFiles.set(path, fileMeta);
           console.log("add file meta:", path);
         } else {
           fileMeta.path = fileNode.path;
         }
+        
         fileMeta.exists = fs.existsSync(fileNode.path);
+        
+        // 读取文件描述
         if (fileMeta.desc === undefined) {
           const file = readJson(fileNode.path) as TreeData;
           fileMeta.desc = file.desc ?? "";
@@ -663,6 +1130,8 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => ({
       fileNode?.children?.forEach((child) => collect(child));
     };
     collect(data);
+    
+    // 清理已删除的文件
     allFiles.forEach((file, key) => {
       if (!file.exists) {
         allFiles.delete(key);
@@ -670,10 +1139,14 @@ export const useWorkspace = create<WorkspaceStore>((set, get) => ({
         console.log("delete file meta:", key);
         delete b3util.files[key];
       } else {
+        // 缓存文件修改时间
         b3util.files[key] = fs.statSync(file.path).mtimeMs;
       }
     });
+    
     set({ allFiles });
+    
+    // 如果有更新，保存工作区配置
     if (updated) {
       workspace.saveWorkspace();
     }

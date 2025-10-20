@@ -799,6 +799,15 @@ class TreeNode extends Rect {
     this.drawIdText(attributes, container);
   }
 
+  /**
+   * 创建或更新子形状（带钩子）
+   * 
+   * @param name 形状名称（唯一）
+   * @param Ctor 形状构造器
+   * @param style 目标样式（false 表示隐藏）
+   * @param container 父容器
+   * @param hooks 创建/更新前后的回调
+   */
   protected upsert<T extends DisplayObject>(
     name: ShapeName,
     Ctor: Constructor<T>,

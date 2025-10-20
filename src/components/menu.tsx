@@ -1,3 +1,14 @@
+/**
+ * Menu 组件 - 应用菜单与项目操作
+ * 
+ * 主要职责：
+ * - 构建应用菜单模板（文件、编辑、构建等）
+ * - 响应主进程事件（打开项目、刷新设置）
+ * - 提供下拉菜单触发器（Windows/macOS 布局差异）
+ * 
+ * 数据流：
+ * Electron 主进程 → ipcRenderer → workspace/setting → 更新菜单与操作
+ */
 import { CheckOutlined } from "@ant-design/icons";
 import { Menu as AppMenu, BrowserWindow, app, dialog } from "@electron/remote";
 import { Button, DropDownProps, Dropdown, Flex, FlexProps, LayoutProps, Space } from "antd";
@@ -26,19 +37,41 @@ const MenuItemLabel: FC<FlexProps> = (itemProps) => {
   );
 };
 
+/**
+ * 获取当前聚焦的 WebContents
+ * 
+ * 用途：执行复制/粘贴等编辑操作时，定位目标窗口
+ */
 const getFocusedWebContents = () => {
   return BrowserWindow.getFocusedWindow()?.webContents;
 };
 
+/**
+ * 打开项目事件（来自主进程）
+ * 
+ * 将目录路径传递给 workspace 以初始化项目
+ */
 ipcRenderer.on("open-project", (_, dir) => {
   useWorkspace.getState().init(dir);
 });
 
+/**
+ * 刷新应用菜单事件（来自主进程）
+ * 
+ * 触发 setting 重新加载，从而更新菜单的相关配置
+ */
 ipcRenderer.on("refresh-app-men", () => {
   // trigger refresh
   useSetting.getState().load();
 });
 
+/**
+ * Menu 根组件
+ * 
+ * - 构建菜单模板（useMemo）
+ * - 管理触发方式（点击/hover）
+ * - 根据 workspace 状态启用/禁用菜单项
+ */
 export const Menu: FC<LayoutProps> = () => {
   const { t } = useTranslation();
   const [trigger, setTrigger] = useState<DropDownProps["trigger"]>(["click"]);
@@ -69,6 +102,14 @@ export const Menu: FC<LayoutProps> = () => {
     }))
   );
 
+  /**
+   * 构建应用菜单模板
+   * 
+   * 菜单结构：
+   * - App（macOS）
+   * - File：新建/打开/保存/构建等
+   * - Edit：撤销/重做/复制/粘贴等
+   */
   const menuTemplate: MenuItemConstructorOptions[] = useMemo(() => {
     const recentWorkspaces: MenuItemConstructorOptions[] = settings.recent.map((path, i) => ({
       id: "menu.file.recent" + i,
@@ -167,6 +208,7 @@ export const Menu: FC<LayoutProps> = () => {
             accelerator: "CmdOrCtrl+B",
             enabled: enabled,
             click: () => {
+              // 触发构建流程（导出所有行为树）
               workspace.buildProject();
             },
           },
@@ -175,6 +217,7 @@ export const Menu: FC<LayoutProps> = () => {
             label: t("setupBuildScript"),
             enabled: enabled,
             click: () => {
+              // 初始化/更新构建脚本到项目
               workspace.setupBuildScript();
             },
           },

@@ -1,3 +1,14 @@
+/**
+ * TitleBar 组件 - 顶部标题栏与全局搜索入口
+ * 
+ * 主要职责：
+ * - 展示当前工作区名称与路径
+ * - 提供全局搜索入口（文件与节点定义）
+ * - 在不同平台切换菜单展示位置（Windows/ macOS）
+ * 
+ * 数据流：
+ * workspace.allFiles / nodeDefs → searchOptions → Select 下拉搜索 → open/onEditingNodeDef
+ */
 import { SearchOutlined } from "@ant-design/icons";
 import { Button, Flex, LayoutProps, Select } from "antd";
 import React, { FC, useMemo } from "react";
@@ -29,6 +40,13 @@ export const TitleBar: FC<LayoutProps> = () => {
       relative: state.relative,
     }))
   );
+  /**
+   * 构建下拉搜索选项
+   * 
+   * 组合两类数据源：
+   * - 文件：显示文件名+路径，value 用于模糊匹配（文件名与描述）
+   * - 节点定义：显示节点名与描述
+   */
   const searchOptions = useMemo(() => {
     const options: OptionType[] = [];
     workspace.allFiles.forEach((file) => {
@@ -122,6 +140,7 @@ export const TitleBar: FC<LayoutProps> = () => {
             optionFilterProp="value"
             onBlur={() => workspace.onShowingSearch(false)}
             onChange={(_, option) => {
+              // 单选模式：根据选项类型执行打开文件或编辑节点定义
               if (!(option instanceof Array)) {
                 workspace.onShowingSearch(false);
                 if (option.path) {

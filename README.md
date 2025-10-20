@@ -94,6 +94,26 @@ npm run build # 编译可执行文件
 - antd
 - g6
 
+## 安全性说明
+
+⚠️ **重要提示**：本项目是为项目组内部使用设计的开发工具，为了开发便利性，禁用了部分 Electron 安全特性：
+
+- `contextIsolation: false` - 渲染进程可直接访问 Node.js API
+- `nodeIntegration: true` - 允许在渲染进程中使用 `require()`
+- `webSecurity: false` - 禁用 Web 安全策略
+
+**适用场景**：
+- ✅ 团队内部使用
+- ✅ 可信任的工作区和行为树文件
+- ✅ 局域网或离线环境
+
+**不适用场景**：
+- ❌ 公开发布的应用
+- ❌ 加载不可信的第三方内容
+- ❌ 处理来自互联网的数据
+
+如需在生产环境使用，建议启用 `contextIsolation: true` 并使用 `contextBridge` 安全地暴露 API。详见 [Electron 安全文档](https://www.electronjs.org/docs/latest/tutorial/security)。
+
 ## 示例行为树框架
 
 - lua 版本 [behavior3lua](https://github.com/zhandouxiaojiji/behavior3lua)

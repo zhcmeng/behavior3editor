@@ -1,3 +1,20 @@
+/**
+ * Editor 组件 - 行为树可视化编辑器
+ * 
+ * 主要职责：
+ * - 渲染并管理行为树的图形编辑器（Graph 实例）
+ * - 处理节点的增删改查、复制粘贴、撤销重做等操作
+ * - 提供节点搜索与跳转能力（内容/ID）
+ * - 通过 dispatch 统一处理来自 Workspace/菜单的编辑事件
+ * 
+ * 架构与数据流：
+ * Workspace/快捷键/菜单 → editor.dispatch → Graph 方法 → 更新 UI/状态
+ * 
+ * 注释风格：
+ * - 文件头：说明模块职责与数据流
+ * - 函数/方法：JSDoc 描述作用、参数与返回值
+ * - 行内注释：解释关键分支与非显而易见逻辑
+ */
 import { ArrowDownOutlined, ArrowUpOutlined, CloseOutlined } from "@ant-design/icons";
 import { useSize } from "ahooks";
 import { Button, Dropdown, Flex, FlexProps, Input, InputRef, MenuProps } from "antd";
@@ -28,6 +45,15 @@ export interface EditorProps extends React.HTMLAttributes<HTMLElement> {
   onChange: () => void;
 }
 
+/**
+ * 创建右键菜单项
+ * 
+ * 说明：
+ * - 使用 AntD Dropdown 的 items 配置
+ * - 键位展示根据平台（Mac/Win）动态切换
+ * 
+ * @returns AntD Menu items 配置数组
+ */
 const createMenu = () => {
   const t = i18n.t;
   const MenuItem: FC<FlexProps> = (itemProps) => {
@@ -108,6 +134,18 @@ const createMenu = () => {
   return arr;
 };
 
+/**
+ * Editor 组件
+ * 
+ * 负责：
+ * - 初始化 Graph 并管理其生命周期
+ * - 处理节点搜索、聚焦、结果导航
+ * - 响应 workspace 发来的编辑事件（通过 dispatch）
+ * 
+ * @param props.data 编辑器状态（包含当前树数据与路径）
+ * @param props.onChange 保存完成后的回调（用于刷新状态）
+ * @returns React Element
+ */
 export const Editor: FC<EditorProps> = ({ onChange, data: editor, ...props }) => {
   const workspace = useWorkspace(
     useShallow((state) => ({
@@ -134,6 +172,16 @@ export const Editor: FC<EditorProps> = ({ onChange, data: editor, ...props }) =>
     placeholder: "",
   });
 
+  /**
+   * 执行搜索并更新搜索结果
+   * 
+   * 流程：
+   * 1. 清空旧结果
+   * 2. 根据过滤条件在整棵树中高亮匹配项
+   * 3. 若有结果：展开并聚焦当前索引的节点；否则：取消选中
+   * 
+   * @param option 搜索过滤选项
+   */
   const onSearchChange = async (option: FilterOption) => {
     option.results.length = 0;
     graph.hightlightSearch(option, graph.data.root);
@@ -142,13 +190,19 @@ export const Editor: FC<EditorProps> = ({ onChange, data: editor, ...props }) =>
     });
     if (option.results.length > 0) {
       const idx = option.index < option.results.length ? option.index : 0;
+      // 展开树以确保目标节点可见
       graph.expandElement();
+      // 聚焦到匹配结果节点
       graph.focusNode(option.results[idx]);
     } else {
+      // 无匹配项时清空选中状态
       graph.selectNode(null);
     }
   };
 
+  /**
+   * 仅刷新高亮状态，不改变当前索引
+   */
   const updateSearchState = () => {
     const option = { ...filterOption };
     option.results.length = 0;
@@ -160,6 +214,9 @@ export const Editor: FC<EditorProps> = ({ onChange, data: editor, ...props }) =>
 
   const onDebounceSearchChange = useDebounceCallback(onSearchChange, 100);
 
+  /**
+   * 跳转到下一个搜索结果
+   */
   const nextResult = () => {
     const { results, index } = filterOption;
     if (results.length > 0) {
@@ -170,6 +227,9 @@ export const Editor: FC<EditorProps> = ({ onChange, data: editor, ...props }) =>
     }
   };
 
+  /**
+   * 跳转到上一个搜索结果
+   */
   const prevResult = () => {
     const { results, index } = filterOption;
     if (results.length > 0) {
@@ -180,6 +240,11 @@ export const Editor: FC<EditorProps> = ({ onChange, data: editor, ...props }) =>
     }
   };
 
+  /**
+   * 切换搜索类型并处理显示状态
+   * 
+   * @param type 搜索类型（按内容或按ID）
+   */
   const searchByType = (type: FilterOption["filterType"]) => {
     let placeholder = "";
     const filterType = type;
@@ -208,6 +273,13 @@ export const Editor: FC<EditorProps> = ({ onChange, data: editor, ...props }) =>
     }, 50);
   };
 
+  /**
+   * 处理编辑器内的按键事件
+   * 
+   * 支持：Enter 跳转下一个；Ctrl/Cmd+F 内容搜索；Ctrl/Cmd+G ID 跳转
+   * 
+   * @param e 键盘事件
+   */
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.code === Hotkey.Enter) {
       nextResult();
@@ -219,8 +291,18 @@ export const Editor: FC<EditorProps> = ({ onChange, data: editor, ...props }) =>
     e.stopPropagation();
   };
 
+  /**
+   * 编辑事件分发器
+   * 
+   * 统一响应 Workspace/菜单发送的编辑事件并调用 Graph 对应方法
+   * 在节点操作后，必要时刷新搜索高亮状态
+   * 
+   * @param event 编辑事件类型
+   * @param data 附加数据（如重命名的新路径、更新的树/节点等）
+   */
   editor.dispatch = async (event: EditEvent, data: unknown) => {
     if (event === "close") {
+      // 关闭当前编辑器：销毁图形实例
       graph.destroy();
     } else if (event === "copy") {
       graph.copyNode();
