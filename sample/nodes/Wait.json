@@ -1,0 +1,26 @@
+{
+    "name": "Wait",
+    "type": "Action",
+    "desc": "等待",
+    "input": [
+        {
+            "name": "wait_time",
+            "desc": "等待时间",
+            "type": "object_var",
+            "value_type": "float",
+            "optional": true
+        }
+    ],
+    "args": [
+        {
+            "name": "time",
+            "type": "float",
+            "desc": "等待时间"
+        },
+        {
+            "name": "random",
+            "type": "float?",
+            "desc": "随机范围"
+        }
+    ]
+}

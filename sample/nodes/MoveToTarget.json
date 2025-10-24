@@ -1,0 +1,16 @@
+{
+    "name": "MoveToTarget",
+    "type": "Action",
+    "desc": "移动到目标",
+    "group": [
+        "Server"
+    ],
+    "input": [
+        {
+            "name": "target",
+            "desc": "目标",
+            "type": "object_var",
+            "value_type": "object"
+        }
+    ]
+}

@@ -1,0 +1,40 @@
+{
+    "name": "Listen",
+    "type": "Decorator",
+    "desc": "侦听行为树事件",
+    "args": [
+        {
+            "name": "builtin",
+            "type": "string",
+            "desc": "事件",
+            "options": [
+                {
+                    "name": "行为树被中断",
+                    "value": "interrupted"
+                },
+                {
+                    "name": "行为树开始执行前",
+                    "value": "beforeRun"
+                },
+                {
+                    "name": "行为树执行完成后",
+                    "value": "afterRun"
+                },
+                {
+                    "name": "行为树执行成功后",
+                    "value": "afterRunSuccess"
+                },
+                {
+                    "name": "行为树执行失败后",
+                    "value": "afterRunFailure"
+                }
+            ]
+        },
+        {
+            "name": "event",
+            "type": "string?",
+            "desc": "自定义事件"
+        }
+    ],
+    "doc": "+ 当事件触发时，执行第一个子节点，多个仅执行第一个\n+ 如果子节点返回 「运行中」，会中断执行并清理执行栈"
+}

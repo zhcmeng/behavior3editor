@@ -1,0 +1,22 @@
+{
+    "name": "ForEach",
+    "type": "Composite",
+    "desc": "遍历数组",
+    "input": [
+        {
+            "name": "array",
+            "desc": "数组",
+            "type": "object_var",
+            "value_type": "array"
+        }
+    ],
+    "output": [
+        {
+            "name": "variable",
+            "desc": "变量",
+            "type": "object_var",
+            "value_type": "any"
+        }
+    ],
+    "doc": "+ 每次执行子节点前会设置当前遍历到的变量\n+ 会执行所有子节点\n+ 永远返回「成功」/「运行中」"
+}

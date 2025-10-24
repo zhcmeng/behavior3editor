@@ -16,7 +16,7 @@
  * 
  * 使用 Zustand 管理状态，跨应用会话持久化
  */
-import { app } from "@electron/remote";
+import { ipcRenderer } from "electron";
 import * as fs from "fs";
 import { create } from "zustand";
 import { NodeLayout } from "../misc/b3type";
@@ -24,12 +24,15 @@ import { readJson, writeJson } from "../misc/util";
 import { useWorkspace } from "./workspace-context";
 
 /**
- * 设置文件路径
+ * 获取设置文件路径
  * 
  * 存储在 Electron 的 userData 目录下
  * 每个用户有独立的设置文件
  */
-const settingPath = app.getPath("userData") + "/settings.json";
+const getSettingPath = async (): Promise<string> => {
+  const userDataPath = await ipcRenderer.invoke("get-app-path", "userData");
+  return userDataPath + "/settings.json";
+};
 
 /**
  * 打开的编辑器信息
@@ -38,11 +41,11 @@ const settingPath = app.getPath("userData") + "/settings.json";
  * 用于恢复上次的工作会话
  */
 export type OpenEditor = {
-  /** 文件路径 */
-  path: string;
-  
-  /** 是否为当前激活的编辑器 */
-  active: boolean;
+    /** 文件路径 */
+    path: string;
+    
+    /** 是否为当前激活的编辑器 */
+    active: boolean;
 };
 
 /**
@@ -52,15 +55,31 @@ export type OpenEditor = {
  * 包括构建目录和打开的编辑器列表
  */
 export type ProjectSetting = {
-  /** 项目路径（.b3-workspace 文件路径） */
-  path: string;
-  
-  /** 构建输出目录 */
-  buildDir: string;
-  
-  /** 打开的编辑器列表 */
-  editors: OpenEditor[];
+    /** 项目路径（.b3-workspace 文件路径） */
+    path: string;
+    
+    /** 构建输出目录 */
+    buildDir: string;
+    
+    /** 打开的编辑器列表 */
+    editors: OpenEditor[];
 };
+
+/**
+ * 日志级别枚举
+ * 
+ * 定义了调试日志的不同级别
+ */
+export enum LogLevel {
+    /** 调试级别 - 详细的调试信息 */
+    DEBUG = "debug",
+    /** 信息级别 - 一般信息 */
+    INFO = "info",
+    /** 警告级别 - 警告信息 */
+    WARN = "warn",
+    /** 错误级别 - 错误信息 */
+    ERROR = "error",
+}
 
 /**
  * 设置数据模型
@@ -68,14 +87,17 @@ export type ProjectSetting = {
  * 存储在 settings.json 中的 JSON 结构
  */
 export type SettingModel = {
-  /** 最近打开的项目列表 */
-  recent: string[];
-  
-  /** 节点显示布局（紧凑/正常） */
-  layout: NodeLayout;
-  
-  /** 所有项目的设置 */
-  projects: ProjectSetting[];
+    /** 最近打开的项目列表 */
+    recent: string[];
+    
+    /** 节点显示布局（紧凑/正常） */
+    layout: NodeLayout;
+    
+    /** 所有项目的设置 */
+    projects: ProjectSetting[];
+    
+    /** 日志级别设置 */
+    logLevel?: LogLevel;
 };
 
 /**
@@ -90,38 +112,44 @@ export type SettingModel = {
  * 4. 项目设置：每个项目的构建目录和编辑器状态
  */
 export type SettingStore = {
-  /** 设置数据 */
-  data: SettingModel;
+    /** 设置数据 */
+    data: SettingModel;
 
-  /** 从文件加载设置 */
-  load: () => void;
-  
-  /** 保存设置到文件 */
-  save: () => void;
-  
-  /** 添加到最近项目列表 */
-  appendRecent: (path: string) => void;
-  
-  /** 从最近项目列表移除 */
-  removeRecent: (path: string) => void;
-  
-  /** 设置节点布局 */
-  setLayout: (layout: "compact" | "normal") => void;
-  
-  /** 设置项目的构建目录 */
-  setBuildDir: (project: string, dir: string) => void;
-  
-  /** 获取项目的构建目录 */
-  getBuildDir: (project: string) => string;
-  
-  /** 记录打开的编辑器 */
-  openEditor: (project: string, path: string) => void;
-  
-  /** 记录关闭的编辑器 */
-  closeEditor: (project: string, path: string) => void;
-  
-  /** 获取项目的所有打开的编辑器 */
-  getEditors: (project: string) => OpenEditor[];
+    /** 从文件加载设置 */
+    load: () => Promise<void>;
+    
+    /** 保存设置到文件 */
+    save: () => Promise<void>;
+    
+    /** 添加到最近项目列表 */
+    appendRecent: (path: string) => void;
+    
+    /** 从最近项目列表移除 */
+    removeRecent: (path: string) => void;
+    
+    /** 设置节点布局 */
+    setLayout: (layout: "compact" | "normal") => void;
+    
+    /** 设置项目的构建目录 */
+    setBuildDir: (project: string, dir: string) => void;
+    
+    /** 获取项目的构建目录 */
+    getBuildDir: (project: string) => string;
+    
+    /** 记录打开的编辑器 */
+    openEditor: (project: string, path: string) => void;
+    
+    /** 记录关闭的编辑器 */
+    closeEditor: (project: string, path: string) => void;
+    
+    /** 获取项目的编辑器列表 */
+    getEditors: (project: string) => OpenEditor[];
+    
+    /** 设置日志级别 */
+    setLogLevel: (logLevel: LogLevel) => void;
+    
+    /** 获取日志级别 */
+    getLogLevel: () => LogLevel;
 };
 
 /**
@@ -136,14 +164,15 @@ export type SettingStore = {
  * - 独立存储：每个项目有独立的设置
  */
 export const useSetting = create<SettingStore>((set, get) => ({
-    // ============ 初始状态 ============
-    data: {
-      recent: [],
-      buildDir: "",
-      layout: "compact",
-      projects: [],
+        // ============ 初始状态 ============
+        data: {
+        recent: [],
+        buildDir: "",
+        layout: "compact",
+        projects: [],
+        logLevel: LogLevel.INFO,
     },
-    
+        
     /**
      * 加载设置
      * 
@@ -157,20 +186,22 @@ export const useSetting = create<SettingStore>((set, get) => ({
      * 调用时机：
      * - 应用启动时（setup.tsx）
      */
-    load: () => {
-      try {
-        if (fs.existsSync(settingPath)) {
-          const settings = readJson(settingPath) as SettingModel;
-          // 兼容旧版本：提供默认值
-          settings.layout = settings.layout || "compact";
-          settings.projects = settings.projects || [];
-          set({ data: settings });
+    load: async () => {
+        try {
+            const settingPath = await getSettingPath();
+            if (fs.existsSync(settingPath)) {
+                const settings = readJson(settingPath) as SettingModel;
+                // 兼容旧版本：提供默认值
+                settings.layout = settings.layout || "compact";
+                settings.projects = settings.projects || [];
+                settings.logLevel = settings.logLevel || LogLevel.INFO;
+                set({ data: settings });
+            }
+        } catch (error) {
+            console.error(error);
         }
-      } catch (error) {
-        console.error(error);
-      }
     },
-  
+    
     /**
      * 保存设置
      * 
@@ -180,10 +211,11 @@ export const useSetting = create<SettingStore>((set, get) => ({
      * - 每次修改后自动调用
      * - 同步写入文件
      */
-    save: () => {
-      writeJson(settingPath, get().data);
+    save: async () => {
+        const settingPath = await getSettingPath();
+        writeJson(settingPath, get().data);
     },
-  
+    
     /**
      * 添加到最近项目列表
      * 
@@ -199,15 +231,15 @@ export const useSetting = create<SettingStore>((set, get) => ({
      * - 工作区初始化完成后
      */
     appendRecent: (path: string) => {
-      const { data, save } = get();
-      // 移除旧记录（如果存在）
-      const recent = data.recent.filter((v) => v !== path);
-      // 添加到列表顶部
-      recent.unshift(path);
-      set({ data: { ...data, recent } });
-      save();
+        const { data, save } = get();
+        // 移除旧记录（如果存在）
+        const recent = data.recent.filter((v) => v !== path);
+        // 添加到列表顶部
+        recent.unshift(path);
+        set({ data: { ...data, recent } });
+        save().catch(console.error);
     },
-  
+    
     /**
      * 从最近项目列表移除
      * 
@@ -218,12 +250,12 @@ export const useSetting = create<SettingStore>((set, get) => ({
      * - 用户手动从列表移除
      */
     removeRecent: (path: string) => {
-      const { data, save } = get();
-      const recent = data.recent.filter((v) => v !== path);
-      set({ data: { ...data, recent } });
-      save();
+        const { data, save } = get();
+        const recent = data.recent.filter((v) => v !== path);
+        set({ data: { ...data, recent } });
+        save().catch(console.error);
     },
-  
+    
     /**
      * 设置节点布局
      * 
@@ -238,13 +270,13 @@ export const useSetting = create<SettingStore>((set, get) => ({
      * - 保存设置
      */
     setLayout: (layout: "compact" | "normal") => {
-      const { data, save } = get();
-      set({ data: { ...data, layout } });
-      save();
-      // 刷新编辑器视图以应用新布局
-      useWorkspace.getState().editing?.dispatch?.("refresh");
+        const { data, save } = get();
+        set({ data: { ...data, layout } });
+        save().catch(console.error);
+        // 刷新编辑器视图以应用新布局
+        useWorkspace.getState().editing?.dispatch?.("refresh");
     },
-  
+    
     /**
      * 设置项目的构建目录
      * 
@@ -257,20 +289,20 @@ export const useSetting = create<SettingStore>((set, get) => ({
      * - 保存设置
      */
     setBuildDir: (projectPath: string, dir: string) => {
-      const { data, save } = get();
-      let project = data.projects.find((v) => v.path === projectPath);
-      if (!project) {
+        const { data, save } = get();
+        let project = data.projects.find((v) => v.path === projectPath);
+        if (!project) {
         project = {
-          path: projectPath,
-          buildDir: "",
-          editors: [],
+            path: projectPath,
+            buildDir: "",
+            editors: [],
         };
-      }
-      project.buildDir = dir;
-      set({ data: { ...data, projects: data.projects } });
-      save();
+        }
+        project.buildDir = dir;
+        set({ data: { ...data, projects: data.projects } });
+        save().catch(console.error);
     },
-  
+    
     /**
      * 获取项目的构建目录
      * 
@@ -278,10 +310,10 @@ export const useSetting = create<SettingStore>((set, get) => ({
      * @returns 构建目录路径，如果未设置返回空字符串
      */
     getBuildDir: (project: string) => {
-      const { data } = get();
-      return data.projects.find((v) => v.path === project)?.buildDir ?? "";
+        const { data } = get();
+        return data.projects.find((v) => v.path === project)?.buildDir ?? "";
     },
-  
+    
     /**
      * 记录打开的编辑器
      * 
@@ -300,30 +332,30 @@ export const useSetting = create<SettingStore>((set, get) => ({
      * - 记住打开的标签页
      */
     openEditor: (projectPath: string, filePath: string) => {
-      const { data, save } = get();
-      let project = data.projects.find((v) => v.path === projectPath);
-      if (!project) {
+        const { data, save } = get();
+        let project = data.projects.find((v) => v.path === projectPath);
+        if (!project) {
         project = {
-          path: projectPath,
-          buildDir: "",
-          editors: [],
+            path: projectPath,
+            buildDir: "",
+            editors: [],
         };
         data.projects.push(project);
-      }
-      const editor = project.editors.find((v) => v.path === filePath);
-      // 将所有编辑器设为非激活
-      project.editors.forEach((v) => (v.active = false));
-      if (editor) {
+        }
+        const editor = project.editors.find((v) => v.path === filePath);
+        // 将所有编辑器设为非激活
+        project.editors.forEach((v) => (v.active = false));
+        if (editor) {
         // 编辑器已存在：设为激活
         editor.active = true;
-      } else {
+        } else {
         // 新编辑器：添加并设为激活
         project.editors.push({ path: filePath, active: true });
-      }
-      set({ data: { ...data, projects: data.projects } });
-      save();
+        }
+        set({ data: { ...data, projects: data.projects } });
+        save().catch(console.error);
     },
-  
+    
     /**
      * 记录关闭的编辑器
      * 
@@ -339,15 +371,15 @@ export const useSetting = create<SettingStore>((set, get) => ({
      * - 更新会话状态
      */
     closeEditor: (project: string, path: string) => {
-      const { data, save } = get();
-      const projectSetting = data.projects.find((v) => v.path === project);
-      if (projectSetting) {
+        const { data, save } = get();
+        const projectSetting = data.projects.find((v) => v.path === project);
+        if (projectSetting) {
         projectSetting.editors = projectSetting.editors.filter((v) => v.path !== path);
-      }
-      set({ data: { ...data, projects: data.projects } });
-      save();
+        }
+        set({ data: { ...data, projects: data.projects } });
+        save().catch(console.error);
     },
-  
+    
     /**
      * 获取项目的所有打开的编辑器
      * 
@@ -359,7 +391,23 @@ export const useSetting = create<SettingStore>((set, get) => ({
      * - 初始化工作区时重新打开标签页
      */
     getEditors: (project: string) => {
-      const { data } = get();
-      return data.projects.find((v) => v.path === project)?.editors ?? [];
+    const { data } = get();
+    return data.projects.find((p) => p.path === project)?.editors ?? [];
     },
-  }));
+    
+    setLogLevel: (logLevel: LogLevel) => {
+    const { data, save } = get();
+    set({
+        data: {
+        ...data,
+        logLevel,
+        },
+    });
+    save().catch(console.error);
+    },
+    
+    getLogLevel: () => {
+    const { data } = get();
+    return data.logLevel ?? LogLevel.INFO;
+    },
+}));

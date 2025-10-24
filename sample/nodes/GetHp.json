@@ -1,0 +1,13 @@
+{
+    "name": "GetHp",
+    "type": "Action",
+    "desc": "获取生命值",
+    "output": [
+        {
+            "name": "hp_value",
+            "desc": "生命值",
+            "type": "object_var",
+            "value_type": "number"
+        }
+    ]
+}

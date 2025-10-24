@@ -1,0 +1,22 @@
+{
+    "name": "RepeatUntilFailure",
+    "type": "Decorator",
+    "desc": "一直尝试直到子节点返回失败",
+    "input": [
+        {
+            "name": "max_loop_count",
+            "desc": "最大循环次数",
+            "type": "object_var",
+            "value_type": "int",
+            "optional": true
+        }
+    ],
+    "args": [
+        {
+            "name": "maxLoop",
+            "type": "int?",
+            "desc": "最大循环次数"
+        }
+    ],
+    "doc": "+ 只能有一个子节点，多个仅执行第一个\n+ 只有当子节点返回「失败」时，才返回「成功」，其它情况返回「运行中」状态\n+ 如果设定了尝试次数，超过指定次数则返回「失败」"
+}

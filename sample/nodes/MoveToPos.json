@@ -1,0 +1,20 @@
+{
+    "name": "MoveToPos",
+    "type": "Action",
+    "desc": "移动到坐标",
+    "group": [
+        "Client"
+    ],
+    "args": [
+        {
+            "name": "x",
+            "desc": "x",
+            "type": "int"
+        },
+        {
+            "name": "y",
+            "desc": "y",
+            "type": "int"
+        }
+    ]
+}

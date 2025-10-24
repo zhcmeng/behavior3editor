@@ -52,7 +52,7 @@ export interface NodeDef {
         desc: string;
         default?: unknown;
         /** Input `value`, only one is allowed between `value` and this arg.*/
-        oneof?: string;
+    
         options?: { name: string; value: unknown }[];
     }[];
     status?:

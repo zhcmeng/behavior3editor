@@ -31,9 +31,8 @@ import { FiCommand, FiDelete } from "react-icons/fi";
 import { IoMdReturnLeft } from "react-icons/io";
 import { PiTreeStructureFill } from "react-icons/pi";
 import { useShallow } from "zustand/react/shallow";
-import { NodeDef } from "../behavior3/src/behavior3";
 import { FileTreeType, useWorkspace } from "../contexts/workspace-context";
-import { getNodeType } from "../misc/b3type";
+import { getNodeType, NodeDef } from "../misc/b3type";
 import * as b3util from "../misc/b3util";
 import { modal } from "../misc/hooks";
 import i18n from "../misc/i18n";
@@ -180,7 +179,7 @@ const resolveKeys = (path: string, node: FileTreeType | NodeTreeType, keys: Reac
  */
 const renameFile = (oldPath: string, newPath: string) => {
   const workspace = useWorkspace.getState();
-  
+
   // 检查目标路径是否已存在
   if (fs.existsSync(newPath)) {
     return false;
@@ -189,7 +188,7 @@ const renameFile = (oldPath: string, newPath: string) => {
       // 执行文件系统重命名
       fs.renameSync(oldPath, newPath);
       const isDirectory = fs.statSync(newPath).isDirectory();
-      
+
       // 更新所有打开的编辑器
       for (const editor of workspace.editors) {
         if (isDirectory) {
@@ -228,7 +227,7 @@ const renameFile = (oldPath: string, newPath: string) => {
  */
 const createFileContextMenu = (node: FileTreeType) => {
   const isTreeFile = b3util.isTreeFile(node.path);
-  
+
   // 菜单项组件（统一样式）
   const MenuItem: FC<FlexProps> = (itemProps) => {
     return (
@@ -395,6 +394,109 @@ const createFolderContextMenu = (copiedPath: string) => {
 };
 
 /**
+ * 从文件树中提取指定目录的内容
+ * 
+ * @param fileTree 文件树根节点
+ * @param dirName 目录名称（如 "cfgs" 或 "vars"）
+ * @returns 目录下的文件列表，如果目录不存在则返回空数组
+ */
+const extractDirectoryFiles = (fileTree: FileTreeType | undefined, dirName: string): FileTreeType[] => {
+  if (!fileTree || !fileTree.children) {
+    return [];
+  }
+
+  // 查找指定目录
+  const targetDir = fileTree.children.find(child =>
+    !child.isLeaf && Path.basename(child.path) === dirName
+  );
+
+  if (!targetDir || !targetDir.children) {
+    return [];
+  }
+
+  // 返回目录下的所有文件（递归展开子目录）
+  const collectFiles = (node: FileTreeType): FileTreeType[] => {
+    if (node.isLeaf) {
+      return [node];
+    }
+
+    if (node.children) {
+      return node.children.flatMap(child => collectFiles(child));
+    }
+
+    return [];
+  };
+
+  return targetDir.children.flatMap(child => collectFiles(child));
+};
+
+/**
+ * 创建分类树节点
+ * 
+ * @param title 分类标题
+ * @param path 唯一路径标识
+ * @param files 文件列表
+ * @param icon 图标
+ * @returns 分类树节点
+ */
+const createCategoryTree = (
+  title: string,
+  path: string,
+  files: FileTreeType[],
+  icon: React.ReactNode
+): NodeTreeType => {
+  return {
+    title,
+    path,
+    icon,
+    children: files.map(file => ({
+      title: Path.basename(file.title),
+      path: file.path,
+      isLeaf: true,
+      icon: <Flex justify="center" align="center" style={{ height: "100%" }}>
+        <BsBoxFill />
+      </Flex>
+    }))
+  };
+};
+
+/**
+ * 过滤文件树，移除指定的目录
+ * 
+ * @param fileTree 原始文件树
+ * @param excludeDirs 要排除的目录名称列表
+ * @returns 过滤后的文件树
+ */
+const filterFileTree = (fileTree: FileTreeType | undefined, excludeDirs: string[]): FileTreeType | undefined => {
+  if (!fileTree) {
+    return undefined;
+  }
+
+  // 如果是叶子节点，直接返回
+  if (fileTree.isLeaf) {
+    return fileTree;
+  }
+
+  // 过滤子节点
+  const filteredChildren = fileTree.children
+    ?.filter(child => {
+      // 如果是文件夹，检查是否在排除列表中
+      if (!child.isLeaf) {
+        const dirName = Path.basename(child.path);
+        return !excludeDirs.includes(dirName);
+      }
+      return true;
+    })
+    ?.map(child => filterFileTree(child, excludeDirs))
+    ?.filter(child => child !== undefined) as FileTreeType[];
+
+  return {
+    ...fileTree,
+    children: filteredChildren
+  };
+};
+
+/**
  * 创建节点定义树
  * 
  * @param rootName 根节点名称
@@ -430,7 +532,7 @@ const createFolderContextMenu = (copiedPath: string) => {
  */
 const createNodeTree = (rootName: string, nodeDefs: b3util.NodeDefs) => {
   const workspace = useWorkspace.getState();
-  
+
   // 创建根节点
   const data: NodeTreeType = {
     title: i18n.t("nodeDefinition"),
@@ -446,14 +548,14 @@ const createNodeTree = (rootName: string, nodeDefs: b3util.NodeDefs) => {
       fontSize: "13px",
     },
   };
-  
+
   // 遍历所有节点定义
   nodeDefs.forEach((nodeDef) => {
     // 处理分组（一个节点可能属于多个分组）
     (nodeDef.group || [""]).forEach((g) => {
       // 类型分组名称：如 "Action" 或 "Action (Hero)"
       const typeGroup = !g ? nodeDef.type : `${nodeDef.type} (${g})`;
-      
+
       // 查找或创建类型分组节点
       let catalog = data.children?.find((nt) => nt.title === typeGroup);
       if (!catalog) {
@@ -474,7 +576,7 @@ const createNodeTree = (rootName: string, nodeDefs: b3util.NodeDefs) => {
         };
         data.children?.push(catalog);
       }
-      
+
       // 添加节点到分组
       catalog.children?.push({
         title: `${nodeDef.name}(${nodeDef.desc})`,
@@ -497,11 +599,11 @@ const createNodeTree = (rootName: string, nodeDefs: b3util.NodeDefs) => {
       });
     });
   });
-  
+
   // 排序：分组按字母顺序，分组内节点也按字母顺序
   data.children?.sort((a, b) => a.title.localeCompare(b.title));
   data.children?.forEach((child) => child.children?.sort((a, b) => a.title.localeCompare(b.title)));
-  
+
   return data;
 };
 
@@ -624,10 +726,10 @@ const doMoveFile = (path: string, newPath: string) => {
   const workspace = useWorkspace.getState();
   const title = Path.basename(path);
   const destDir = Path.dirname(newPath);
-  
+
   const doMove = () => {
     fs.renameSync(path, newPath);
-    
+
     // 更新编辑器路径
     for (const editor of workspace.editors) {
       // 更新被移动文件/文件夹内的编辑器
@@ -635,7 +737,7 @@ const doMoveFile = (path: string, newPath: string) => {
         editor.dispatch?.("rename", destDir + "/" + Path.basename(editor.path));
       }
       console.log("editor move", editor.path === newPath, editor.path, newPath);
-      
+
       // 刷新目标位置的编辑器
       if (editor.path.startsWith(newPath)) {
         console.log("editor reload", editor.path === newPath, editor.path, newPath);
@@ -835,7 +937,7 @@ const alertDeleteFolder = (path: string) => {
  */
 export const Explorer: FC = () => {
   // ============ 状态订阅 ============
-  
+
   /**
    * 从 workspace store 订阅需要的状态和方法
    * 使用 useShallow 避免不必要的重渲染
@@ -853,40 +955,40 @@ export const Explorer: FC = () => {
       open: state.open,
     }))
   );
-  
+
   const { t } = useTranslation();
-  
+
   // ============ 文件树状态 ============
-  
+
   /** 当前选中的文件路径 */
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-  
+
   /** 展开的文件夹路径列表 */
   const [expandedKeys, setExpandedKeys] = useState<React.Key[]>(
     workspace.fileTree?.path ? [workspace.fileTree.path] : []
   );
-  
+
   /** 复制的文件路径（用于粘贴） */
   const [copyFile, setCopyFile] = useState("");
-  
+
   /** 重命名时的新名称（null 表示不在重命名状态） */
   const [newName, setNewName] = useState<string | null>(null);
-  
+
   /** 右键菜单内容 */
   const [contextMenu, setContextMenu] = useState<ItemType[]>([]);
 
   // ============ 节点定义树状态 ============
-  
+
   const rootNodedefName = "nodeTree.root";
-  
+
   /** 选中的节点定义 */
   const [selectedNodedefKeys, setSelectedNodedefKeys] = useState<string[]>([]);
-  
+
   /** 展开的节点定义分组 */
   const [expandedNodedefKeys, setExpandedNodedefKeys] = useState<React.Key[]>([rootNodedefName]);
 
   // ============ 设置文件树根节点图标 ============
-  
+
   if (workspace.fileTree) {
     workspace.fileTree.icon = (
       <Flex justify="center" align="center" style={{ height: "100%" }}>
@@ -896,7 +998,7 @@ export const Explorer: FC = () => {
   }
 
   // ============ 创建节点定义树 ============
-  
+
   /**
    * 根据节点定义创建树结构
    * useMemo 避免不必要的重新计算
@@ -906,8 +1008,47 @@ export const Explorer: FC = () => {
     [t, workspace.nodeDefs]
   );
 
+  // ============ 创建分类树 ============
+
+  /**
+   * 配置定义树 - 显示 cfgs 目录下的文件
+   */
+  const configTree = useMemo(() => {
+    const cfgFiles = extractDirectoryFiles(workspace.fileTree, "cfgs");
+    return createCategoryTree(
+      t("explorer.configDefinitions") || "配置定义",
+      "category.configs",
+      cfgFiles,
+      <Flex justify="center" align="center" style={{ height: "100%" }}>
+        <FiCommand />
+      </Flex>
+    );
+  }, [workspace.fileTree, t]);
+
+  /**
+   * 变量定义树 - 显示 vars 目录下的文件
+   */
+  const variableTree = useMemo(() => {
+    const varFiles = extractDirectoryFiles(workspace.fileTree, "vars");
+    return createCategoryTree(
+      t("explorer.variableDefinitions") || "变量定义",
+      "category.variables",
+      varFiles,
+      <Flex justify="center" align="center" style={{ height: "100%" }}>
+        <BsBoxFill />
+      </Flex>
+    );
+  }, [workspace.fileTree, t]);
+
+  /**
+   * 过滤后的文件树 - 用于显示，排除 cfgs 和 vars 目录
+   */
+  const filteredFileTree = useMemo(() => {
+    return filterFileTree(workspace.fileTree, ["cfgs", "vars"]);
+  }, [workspace.fileTree]);
+
   // ============ 自动展开选中的文件 ============
-  
+
   /**
    * 当切换编辑器时，自动展开并滚动到对应文件
    * 
@@ -921,26 +1062,26 @@ export const Explorer: FC = () => {
     if (workspace.editing) {
       const keys: React.Key[] = [];
       resolveKeys(workspace.editing.path, workspace.fileTree!, keys);
-      
+
       // 合并已展开的 keys
       for (const k of expandedKeys) {
         if (keys.indexOf(k) === -1) {
           keys.push(k);
         }
       }
-      
+
       // 滚动到视图（如果不在节点定义树中）
       if (!selectedNodedefKeys.includes(workspace.editing.path)) {
         scrollIntoView(workspace.editing.path);
       }
-      
+
       setExpandedKeys(keys);
       setSelectedKeys([workspace.editing.path]);
     }
   }, [workspace.editing]);
 
   // ============ 自动展开选中的节点定义 ============
-  
+
   /**
    * 当查看节点定义时，自动展开并滚动到对应节点
    */
@@ -956,19 +1097,19 @@ export const Explorer: FC = () => {
           keys.push(k);
         }
       }
-      
+
       // 滚动到视图（如果不是外部节点定义）
       if (!workspace.editingNodeDef.path) {
         scrollIntoView(path);
       }
-      
+
       setExpandedNodedefKeys(keys);
       setSelectedNodedefKeys([path]);
     }
   }, [t, workspace.editingNodeDef]);
 
   // ============ 键盘快捷键 ============
-  
+
   const keysRef = useRef<HTMLDivElement>(null);
 
   /**
@@ -1039,7 +1180,7 @@ export const Explorer: FC = () => {
   });
 
   // ============ 提交重命名 ============
-  
+
   /**
    * 完成重命名操作
    * 
@@ -1070,20 +1211,20 @@ export const Explorer: FC = () => {
       setNewName(null);
       return;
     }
-    
+
     // 创建新文件夹
     if (node.path.endsWith("/:")) {
       node.path = Path.dirname(node.path) + "/" + newName.replace(/[^\w. _-]+/g, "");
       node.title = Path.basename(node.path);
       fs.mkdirSync(node.path);
-    } 
+    }
     // 创建新文件
     else if (node.path.endsWith("/.json")) {
       node.path = Path.dirname(node.path) + "/" + newName.replace(/[^\w. _-]+/g, "");
       node.title = Path.basename(node.path);
       fs.writeFileSync(node.path, JSON.stringify(b3util.createNewTree(node.title), null, 2));
       workspace.open(node.path);
-    } 
+    }
     // 重命名现有文件
     else {
       const newpath = Path.dirname(node.path) + "/" + newName;
@@ -1091,13 +1232,13 @@ export const Explorer: FC = () => {
         setSelectedKeys([newpath]);
       }
     }
-    
+
     node.editing = false;
     setNewName(null);
   };
 
   // ============ 事件分发器 ============
-  
+
   /**
    * 处理所有文件/文件夹操作事件
    * 
@@ -1129,7 +1270,7 @@ export const Explorer: FC = () => {
         }
         break;
       }
-      
+
       // ========== 新建文件夹 ==========
       case "newFolder": {
         const folderNode: FileTreeType = {
@@ -1146,7 +1287,7 @@ export const Explorer: FC = () => {
         }
         break;
       }
-      
+
       // ========== 新建文件 ==========
       case "newFile": {
         const folderNode: FileTreeType = {
@@ -1163,7 +1304,7 @@ export const Explorer: FC = () => {
         }
         break;
       }
-      
+
       // ========== 粘贴文件 ==========
       case "paste": {
         if (copyFile) {
@@ -1173,7 +1314,7 @@ export const Explorer: FC = () => {
             folder = Path.dirname(node.path);
           }
           const newPath = folder + "/" + Path.basename(copyFile);
-          
+
           // 检查目标文件是否存在
           if (fs.existsSync(newPath)) {
             if (node.path === newPath) {
@@ -1190,7 +1331,7 @@ export const Explorer: FC = () => {
         }
         break;
       }
-      
+
       // ========== 复制文件路径 ==========
       case "copy": {
         if (b3util.isTreeFile(node.path)) {
@@ -1198,7 +1339,7 @@ export const Explorer: FC = () => {
         }
         break;
       }
-      
+
       // ========== 复制文件 ==========
       case "duplicate": {
         if (b3util.isTreeFile(node.path)) {
@@ -1215,7 +1356,7 @@ export const Explorer: FC = () => {
         }
         break;
       }
-      
+
       // ========== 删除文件/文件夹 ==========
       case "delete": {
         // 不允许删除根节点
@@ -1229,18 +1370,18 @@ export const Explorer: FC = () => {
         }
         break;
       }
-      
+
       // ========== 移动文件/文件夹（拖拽） ==========
       case "move": {
         try {
           // 确定目标文件夹
           const destDir = dest?.children ? dest.path : Path.dirname(dest!.path);
-          
+
           // 检查是否移动到同一文件夹
           if (destDir === Path.dirname(node.path)) {
             return;
           }
-          
+
           const newPath = destDir + "/" + Path.basename(node.path);
           doMoveFile(node.path, newPath);
         } catch (error) {
@@ -1248,12 +1389,12 @@ export const Explorer: FC = () => {
         }
         break;
       }
-      
+
       // ========== 在文件管理器中显示 ==========
       case "revealFile":
         ipcRenderer.invoke("show-item-in-folder", node.path);
         break;
-      
+
       // ========== 重命名 ==========
       case "rename": {
         if (b3util.isTreeFile(node.path)) {
@@ -1266,7 +1407,7 @@ export const Explorer: FC = () => {
   };
 
   // ============ 右键菜单点击处理 ============
-  
+
   /**
    * 处理右键菜单项的点击事件
    * 
@@ -1280,7 +1421,7 @@ export const Explorer: FC = () => {
   };
 
   // ============ 渲染 ============
-  
+
   // 未加载文件树时不渲染
   if (!workspace.fileTree) {
     return null;
@@ -1302,7 +1443,7 @@ export const Explorer: FC = () => {
       <div style={{ padding: "12px 24px" }}>
         <span style={{ fontSize: "18px", fontWeight: "600" }}>{t("explorer.title")}</span>
       </div>
-      
+
       {/* // ========== 主内容区（文件树 + 节点定义树） ========== */}
       <Flex
         vertical
@@ -1315,7 +1456,7 @@ export const Explorer: FC = () => {
             <DirectoryTree
               virtual                                    // 虚拟滚动（性能优化）
               tabIndex={-1}                             // 避免聚焦
-              treeData={workspace.fileTree ? [workspace.fileTree] : []}
+              treeData={filteredFileTree ? [filteredFileTree] : []}
               fieldNames={{ key: "path", title: "path" }} // 字段映射
               expandedKeys={expandedKeys}               // 展开的节点
               selectedKeys={selectedKeys}               // 选中的节点
@@ -1345,7 +1486,7 @@ export const Explorer: FC = () => {
               // 节点标题渲染
               titleRender={(node) => {
                 const value = Path.basename(node.title);
-                
+
                 // 编辑模式：显示输入框
                 if (node.editing) {
                   return (
@@ -1386,7 +1527,7 @@ export const Explorer: FC = () => {
                       ></Input>
                     </div>
                   );
-                } 
+                }
                 // 普通模式：显示文件名
                 else {
                   return (
@@ -1413,20 +1554,20 @@ export const Explorer: FC = () => {
                 newName !== null
                   ? false  // 重命名时禁用拖拽
                   : {
-                      icon: false,
-                      nodeDraggable: (node) => {
-                        const fileNode = node as unknown as FileTreeType;
-                        // 文件夹和行为树文件可拖拽
-                        return !!fileNode.children || b3util.isTreeFile(fileNode.path);
-                      },
-                    }
+                    icon: false,
+                    nodeDraggable: (node) => {
+                      const fileNode = node as unknown as FileTreeType;
+                      // 文件夹和行为树文件可拖拽
+                      return !!fileNode.children || b3util.isTreeFile(fileNode.path);
+                    },
+                  }
               }
-              
+
               switcherIcon={<DownOutlined />}
             />
           </div>
         </Dropdown>
-        
+
         {/* ========== 节点定义树 ========== */}
         <DirectoryTree
           virtual
@@ -1435,13 +1576,13 @@ export const Explorer: FC = () => {
           treeData={[nodeTree]}
           expandedKeys={expandedNodedefKeys}
           selectedKeys={selectedNodedefKeys}
-          
+
           onExpand={(keys) => {
             setExpandedNodedefKeys(keys);
           }}
-          
+
           draggable={{ icon: false, nodeDraggable: (node) => !!node.isLeaf }}
-          
+
           titleRender={(node) => (
             <div style={{ flex: 1, width: 0, minWidth: 0 }}>
               <div
@@ -1455,7 +1596,7 @@ export const Explorer: FC = () => {
               </div>
             </div>
           )}
-          
+
           // 点击节点定义 - 在属性面板显示详情
           onSelect={(_, info) => {
             const node = info.node;
@@ -1469,14 +1610,104 @@ export const Explorer: FC = () => {
               setSelectedNodedefKeys([node.path]);
             }
           }}
-          
+
           // 拖拽开始 - 传递节点名称到画布
           onDragStart={(e) => {
             e.event.dataTransfer.setData("explore-node", e.node.def?.name ?? "");
           }}
-          
+
           switcherIcon={<DownOutlined />}
         />
+
+        {/* ========== 配置定义树 ========== */}
+        {configTree.children && configTree.children.length > 0 && (
+          <DirectoryTree
+            virtual
+            tabIndex={-1}
+            fieldNames={{ key: "path", title: "path" }}
+            treeData={[configTree]}
+            expandedKeys={expandedKeys}
+            selectedKeys={selectedKeys}
+
+            onExpand={(keys) => {
+              setExpandedKeys(keys);
+            }}
+
+            titleRender={(node) => (
+              <div style={{ flex: 1, width: 0, minWidth: 0 }}>
+                <div
+                  style={{
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {node.title}
+                </div>
+              </div>
+            )}
+
+            // 点击配置文件 - 打开文件
+            onSelect={(_, info) => {
+              const node = info.selectedNodes.at(0);
+              if (node && node.isLeaf) {
+                // 找到原始文件节点并打开
+                const originalNode = findFile(node.path, workspace.fileTree!);
+                if (originalNode) {
+                  dispatch("open", originalNode);
+                  setSelectedKeys([node.path]);
+                }
+              }
+            }}
+
+            switcherIcon={<DownOutlined />}
+          />
+        )}
+
+        {/* ========== 变量定义树 ========== */}
+        {variableTree.children && variableTree.children.length > 0 && (
+          <DirectoryTree
+            virtual
+            tabIndex={-1}
+            fieldNames={{ key: "path", title: "path" }}
+            treeData={[variableTree]}
+            expandedKeys={expandedKeys}
+            selectedKeys={selectedKeys}
+
+            onExpand={(keys) => {
+              setExpandedKeys(keys);
+            }}
+
+            titleRender={(node) => (
+              <div style={{ flex: 1, width: 0, minWidth: 0 }}>
+                <div
+                  style={{
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {node.title}
+                </div>
+              </div>
+            )}
+
+            // 点击变量文件 - 打开文件
+            onSelect={(_, info) => {
+              const node = info.selectedNodes.at(0);
+              if (node && node.isLeaf) {
+                // 找到原始文件节点并打开
+                const originalNode = findFile(node.path, workspace.fileTree!);
+                if (originalNode) {
+                  dispatch("open", originalNode);
+                  setSelectedKeys([node.path]);
+                }
+              }
+            }}
+
+            switcherIcon={<DownOutlined />}
+          />
+        )}
       </Flex>
     </Flex>
   );

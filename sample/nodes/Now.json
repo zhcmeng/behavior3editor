@@ -1,0 +1,13 @@
+{
+    "name": "Now",
+    "type": "Action",
+    "desc": "获取当前时间",
+    "output": [
+        {
+            "name": "current_time",
+            "desc": "当前时间",
+            "type": "object_var",
+            "value_type": "number"
+        }
+    ]
+}

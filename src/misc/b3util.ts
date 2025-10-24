@@ -8,25 +8,35 @@
  */
 import assert from "assert";
 import * as fs from "fs";
-import { ExpressionEvaluator, NodeDef } from "../behavior3/src/behavior3";
 import "./array";
 import {
-  FileVarDecl,
-  hasArgOptions,
-  ImportDecl,
-  isBoolType,
-  isExprType,
-  isFloatType,
-  isIntType,
-  isJsonType,
-  isStringType,
-  keyWords,
-  NodeArg,
-  NodeData,
-  TreeData,
-  VarDecl,
-  VERSION,
+    ArgType, ExpressionEvaluator, FileVarDecl,
+    hasArgOptions,
+    ImportDecl,
+    isBoolType,
+    isExprType,
+    isFloatType,
+    isIntType,
+    isJsonType,
+    isStringType,
+    keyWords,
+    NodeArg,
+    NodeData, NodeDef, TreeData,
+    ValueType,
+    VarDecl, VERSION
 } from "./b3type";
+// 本地日志函数（避免将渲染端 log.ts 打包到主进程）
+export const logDebug = (context: string, message: string, data?: any) => {
+  try {
+    console.debug(`${context} ${message}`, data);
+  } catch {}
+};
+
+export const debugVarCheck = (context: string, varName: string, varValue: any, varDecl?: VarDecl) => {
+  try {
+    console.debug(`Variable check: ${varName}`, { value: varValue, type: typeof varValue, declaration: varDecl });
+  } catch {}
+};
 import Path from "./path";
 import { readJson, readTree, readWorkspace } from "./util";
 
@@ -75,10 +85,54 @@ let checkExpr: boolean = false;
 let workdir: string = "";
 let alertError: (msg: string, duration?: number) => void = () => {};
 
+// 导入日志模块
+// 渲染端日志导出已移除，避免主进程构建时引入 renderer 依赖
+
 const unknownNodeDef: NodeDef = {
   name: "unknown",
   desc: "",
   type: "Action",
+};
+
+/**
+ * 从独立的 JSON 文件加载节点定义
+ * @param nodesDir 节点定义文件目录路径
+ * @returns 节点定义数组
+ */
+const loadNodeDefsFromFiles = (nodesDir: string): NodeDef[] => {
+  const nodeDefData: NodeDef[] = [];
+  
+  try {
+    // 检查 nodes 目录是否存在
+    if (!fs.existsSync(nodesDir)) {
+      console.warn(`节点定义目录不存在: ${nodesDir}`);
+      return nodeDefData;
+    }
+
+    // 读取目录中的所有 JSON 文件
+    const files = fs.readdirSync(nodesDir);
+    const jsonFiles = files.filter(file => file.endsWith('.json'));
+
+    for (const file of jsonFiles) {
+      try {
+        const filePath = Path.join(nodesDir, file);
+        const nodeDef = readJson(filePath) as NodeDef;
+        
+        // 验证节点定义的基本字段
+        if (nodeDef.name && nodeDef.type) {
+          nodeDefData.push(nodeDef);
+        } else {
+          console.warn(`节点定义文件格式错误: ${filePath}, 缺少必要字段 name 或 type`);
+        }
+      } catch (error) {
+        console.error(`读取节点定义文件失败: ${file}`, error);
+      }
+    }
+  } catch (error) {
+    console.error(`读取节点定义目录失败: ${nodesDir}`, error);
+  }
+
+  return nodeDefData;
 };
 
 /**
@@ -90,7 +144,31 @@ const unknownNodeDef: NodeDef = {
 export const initWorkdir = (path: string, handler: typeof alertError) => {
   workdir = path;
   alertError = handler;
-  const nodeDefData = readJson(`${workdir}/node-config.b3-setting`) as NodeDef[];
+  
+  let nodeDefData: NodeDef[] = [];
+  
+  // 优先尝试从 nodes 目录加载独立的节点定义文件
+  const nodesDir = `${workdir}/nodes`;
+  const nodeDefsFromFiles = loadNodeDefsFromFiles(nodesDir);
+  
+  if (nodeDefsFromFiles.length > 0) {
+    // 如果找到独立的节点定义文件，使用这些文件
+    nodeDefData = nodeDefsFromFiles;
+    console.log(`从独立文件加载了 ${nodeDefData.length} 个节点定义`);
+  } else {
+    // 否则回退到原来的 node-config.b3-setting 文件
+    try {
+      const configPath = `${workdir}/node-config.b3-setting`;
+      if (fs.existsSync(configPath)) {
+        nodeDefData = readJson(configPath) as NodeDef[];
+        console.log(`从配置文件加载了 ${nodeDefData.length} 个节点定义`);
+      }
+    } catch (error) {
+      console.error('加载节点配置文件失败:', error);
+    }
+  }
+  
+  // 构建节点定义映射和分组信息
   const groups: Set<string> = new Set();
   nodeDefs = new NodeDefs();
   for (const v of nodeDefData) {
@@ -131,7 +209,14 @@ export const updateUsingVars = (vars: VarDecl[]) => {
   usingVars = null;
   for (const v of vars) {
     usingVars ??= {};
-    usingVars[v.name] = v;
+    // 确保变量包含完整的类型信息
+    usingVars[v.name] = {
+      name: v.name,
+      desc: v.desc,
+      type: v.type || ArgType.OBJECT_VAR,  // 默认为对象变量
+      value_type: v.value_type || ValueType.STRING,
+      value: v.value
+    };
   }
 };
 
@@ -155,7 +240,10 @@ export const parseExpr = (expr: string) => {
   }
   const result = expr
     .split(/[^a-zA-Z0-9_.]/)
-    .map((v) => v.split(".")[0])
+    .map((token) => {
+      if (!token) return "";
+      return token.split(".")[0];
+    })
     .filter((v) => isValidVariableName(v));
   parsedExprs[expr] = result;
   return result;
@@ -213,6 +301,22 @@ export const isValidVariableName = (name: string) => {
 };
 
 /**
+ * 检查变量是否存在
+ * @param variableName 变量名
+ * @param usingVars 变量声明映射
+ * @returns 变量是否存在
+ */
+const isVariableExists = (variableName: string, usingVars: Record<string, VarDecl>): boolean => {
+  debugVarCheck("isVariableExists", variableName, usingVars);
+  const exists = !!usingVars[variableName];
+  logDebug(
+    "isVariableExists",
+    exists ? `Found variable "${variableName}"` : `Variable "${variableName}" not found`
+  );
+  return exists;
+};
+
+/**
  * 判断节点是否为子树根（引用外部路径且非整树根 id=1）。
  * @param data 节点数据
  * @returns 是否为子树根
@@ -237,25 +341,39 @@ export const isNodeEqual = (node1: NodeData, node2: NodeData) => {
   ) {
     const def = nodeDefs.get(node1.name);
 
-    for (const arg of def.args ?? []) {
-      if (node1.args?.[arg.name] !== node2.args?.[arg.name]) {
+    // 比较 args
+    const args1Len = node1.args?.length ?? 0;
+    const args2Len = node2.args?.length ?? 0;
+    if (args1Len !== args2Len) {
+      return false;
+    }
+    for (let i = 0; i < args1Len; i++) {
+      const arg1 = node1.args?.[i];
+      const arg2 = node2.args?.[i];
+      if (arg1?.name !== arg2?.name || arg1?.value !== arg2?.value) {
         return false;
       }
     }
 
+    // 比较 input
     if (def.input?.length) {
       const len = Math.max(node1.input?.length ?? 0, node2.input?.length ?? 0);
       for (let i = 0; i < len; i++) {
-        if (node1.input?.[i] !== node2.input?.[i]) {
+        const input1 = node1.input?.[i];
+        const input2 = node2.input?.[i];
+        if (input1?.name !== input2?.name || input1?.type !== input2?.type) {
           return false;
         }
       }
     }
 
+    // 比较 output
     if (def.output?.length) {
       const len = Math.max(node1.output?.length ?? 0, node2.output?.length ?? 0);
       for (let i = 0; i < len; i++) {
-        if (node1.output?.[i] !== node2.output?.[i]) {
+        const output1 = node1.output?.[i];
+        const output2 = node2.output?.[i];
+        if (output1?.name !== output2?.name || output1?.type !== output2?.type) {
           return false;
         }
       }
@@ -280,8 +398,9 @@ const error = (data: NodeData, msg: string) => {
  * @param arg 参数定义
  * @returns 原始类型字符串（如 "int"、"string"）
  */
-export const getNodeArgRawType = (arg: NodeArg) => {
-  return arg.type.match(/^\w+/)![0] as NodeArg["type"];
+export const getNodeArgValueType = (arg: NodeArg) => {
+  if (!arg.value_type) return "string" as NodeArg["value_type"];
+  return arg.value_type.match(/^\w+/)![0] as NodeArg["value_type"];
 };
 
 /**
@@ -290,7 +409,7 @@ export const getNodeArgRawType = (arg: NodeArg) => {
  * @returns 是否为数组
  */
 export const isNodeArgArray = (arg: NodeArg) => {
-  return arg.type.includes("[]");
+  return arg.value_type?.includes("[]") ?? false;
 };
 
 /**
@@ -299,7 +418,7 @@ export const isNodeArgArray = (arg: NodeArg) => {
  * @returns 是否可选
  */
 export const isNodeArgOptional = (arg: NodeArg) => {
-  return arg.type.includes("?");
+  return arg?.value_type?.includes("?") ?? false;
 };
 
 /**
@@ -317,8 +436,8 @@ export const checkNodeArgValue = (
   verbose?: boolean
 ) => {
   let hasError = false;
-  const type = getNodeArgRawType(arg);
-  if (isFloatType(type)) {
+  const value_type = getNodeArgValueType(arg);
+  if (isFloatType(value_type)) {
     // 浮点：允许 number；未赋值且为可选通过
     const isNumber = typeof value === "number";
     const isOptional = value === undefined && isNodeArgOptional(arg);
@@ -328,7 +447,7 @@ export const checkNodeArgValue = (
       }
       hasError = true;
     }
-  } else if (isIntType(type)) {
+  } else if (isIntType(value_type)) {
     // 整数：要求 number 且为整数；未赋值且为可选通过
     const isInt = typeof value === "number" && value === Math.floor(value);
     const isOptional = value === undefined && isNodeArgOptional(arg);
@@ -338,7 +457,7 @@ export const checkNodeArgValue = (
       }
       hasError = true;
     }
-  } else if (isStringType(type)) {
+  } else if (isStringType(value_type)) {
     // 字符串：允许非空字符串；可选情况下允许空字符串/未赋值
     const isString = typeof value === "string" && value;
     const isOptional = (value === undefined || value === "") && isNodeArgOptional(arg);
@@ -348,17 +467,24 @@ export const checkNodeArgValue = (
       }
       hasError = true;
     }
-  } else if (isExprType(type)) {
-    // 表达式：与字符串相同，但后续可能进行表达式 dry-run
-    const isExpr = typeof value === "string" && value;
-    const isOptional = (value === undefined || value === "") && isNodeArgOptional(arg);
+  } else if (isExprType(value_type)) {
+    // 表达式：支持字符串或对象结构 {name, type}
+    let exprValue: string | undefined;
+    if (typeof value === "string") {
+      exprValue = value;
+    } else if (typeof value === "object" && value !== null && 'name' in value) {
+      exprValue = (value as { name: string }).name;
+    }
+    
+    const isExpr = exprValue && exprValue.length > 0;
+    const isOptional = (value === undefined || value === "" || exprValue === "") && isNodeArgOptional(arg);
     if (!(isExpr || isOptional)) {
       if (verbose) {
-        error(data, `'${arg.name}=${JSON.stringify(value)}' is not an expr string`);
+        error(data, `'${arg.name}=${JSON.stringify(value)}' is not an expr string or valid object`);
       }
       hasError = true;
     }
-  } else if (isJsonType(type)) {
+  } else if (isJsonType(value_type)) {
     // JSON/对象：非空判定；可选允许未赋值
     const isJson = value !== undefined && value !== "";
     const isOptional = isNodeArgOptional(arg);
@@ -368,7 +494,7 @@ export const checkNodeArgValue = (
       }
       hasError = true;
     }
-  } else if (isBoolType(type)) {
+  } else if (isBoolType(value_type)) {
     // 布尔：允许 boolean 或未赋值（布尔默认 false 情况常见）
     const isBool = typeof value === "boolean" || value === undefined;
     if (!isBool) {
@@ -379,7 +505,7 @@ export const checkNodeArgValue = (
     }
   } else {
     hasError = true;
-    error(data, `unknown arg type '${arg.type}'`);
+    error(data, `unknown arg type '${arg.value_type}'`);
   }
 
   if (hasArgOptions(arg)) {
@@ -398,7 +524,7 @@ export const checkNodeArgValue = (
 };
 
 /**
- * 校验节点的第 i 个参数（支持数组与 oneof 限制）。
+ * 校验节点的第 i 个参数（支持数组）。
  * @param data 节点数据
  * @param conf 节点定义
  * @param i 参数下标
@@ -406,61 +532,41 @@ export const checkNodeArgValue = (
  * @returns 是否通过校验
  */
 export const checkNodeArg = (data: NodeData, conf: NodeDef, i: number, verbose?: boolean) => {
-  let hasError = false;
-  const arg = conf.args![i] as NodeArg;
-  const value = data.args?.[arg.name];
-  if (isNodeArgArray(arg)) {
-    // 数组参数：必须为非空数组（除非参数可选）
-    if (!Array.isArray(value) || value.length === 0) {
-      if (!isNodeArgOptional(arg)) {
-        if (verbose) {
-          error(data, `'${arg.name}=${JSON.stringify(value)}' is not an array or empty array`);
-        }
-        hasError = true;
-      }
+    let hasError = false;
+    const arg = conf.args![i] as NodeArg;
+    const argData = data.args?.[i];
+    
+    // 处理新的数据格式：支持 { name: string, type: ArgType } 和传统的 { value: unknown } 格式
+    let value: unknown;
+    if (argData && typeof argData === 'object' && 'name' in argData && 'type' in argData) {
+        // 新格式：{ name: string, type: ArgType }，直接使用整个对象作为值
+        value = argData;
     } else {
-      for (let j = 0; j < value.length; j++) {
-        if (!checkNodeArgValue(data, arg, value[j], verbose)) {
-          hasError = true;
+        // 传统格式：{ value: unknown } 或直接值
+        value = (argData as any)?.value !== undefined ? (argData as any).value : argData;
+    }
+    
+    if (isNodeArgArray(arg)) {
+        // 数组参数：必须为非空数组（除非参数可选）
+        if (!Array.isArray(value) || value.length === 0) {
+        if (!isNodeArgOptional(arg)) {
+            if (verbose) {
+            error(data, `'${arg.name}=${JSON.stringify(value)}' is not an array or empty array`);
+            }
+            hasError = true;
         }
-      }
+        } else {
+        for (let j = 0; j < value.length; j++) {
+            if (!checkNodeArgValue(data, arg, value[j], verbose)) {
+            hasError = true;
+            }
+        }
+        }
+    } else if (!checkNodeArgValue(data, arg, value, verbose)) {
+        hasError = true;
     }
-  } else if (!checkNodeArgValue(data, arg, value, verbose)) {
-    hasError = true;
-  }
-  if (arg.oneof !== undefined) {
-    // oneof 语义：与某个 input 位置互斥（两者只允许其一）
-    const idx = conf.input?.findIndex((v) => v.startsWith(arg.oneof!)) ?? -1;
-    if (!checkOneof(arg, data.args?.[arg.name], data.input?.[idx])) {
-      if (verbose) {
-        error(
-          data,
-          `only one is allowed for between argument '${arg.name}' and input '${data.input?.[idx]}'`
-        );
-      }
-      hasError = true;
-    }
-  }
 
-  return !hasError;
-};
-
-/**
- * oneof 互斥检查：参数值与输入值只能二选一。
- * @param arg 参数定义（可能为数组）
- * @param argValue 参数值
- * @param inputValue 输入变量值
- * @returns 是否满足互斥
- */
-export const checkOneof = (arg: NodeArg, argValue: unknown, inputValue: unknown) => {
-  if (isNodeArgArray(arg)) {
-    if (argValue instanceof Array && argValue.length === 0) {
-      argValue = undefined;
-    }
-  }
-  argValue = argValue === undefined ? "" : argValue;
-  inputValue = inputValue ?? "";
-  return (argValue !== "" && inputValue === "") || (argValue === "" && inputValue !== "");
+    return !hasError;
 };
 
 /**
@@ -474,6 +580,7 @@ export const checkNodeData = (data: NodeData | null | undefined) => {
   }
   const conf = nodeDefs.get(data.name);
   if (conf.name === unknownNodeDef.name) {
+    logDebug('checkNodeData', `节点定义未找到 - 节点: ${data.name}`, { node: data });
     error(data, `undefined node: ${data.name}`);
     return false;
   }
@@ -483,6 +590,7 @@ export const checkNodeData = (data: NodeData | null | undefined) => {
   if (conf.group) {
     // 节点分组必须启用（由 workspace 设置控制）
     if (!conf.group.some((g) => usingGroups?.[g])) {
+      logDebug('checkNodeData', `节点分组未启用 - 节点: ${data.name}`, { node: data, expectedGroups: conf.group, enabledGroups: usingGroups });
       error(data, `node group '${conf.group}' is not enabled`);
       hasError = true;
     }
@@ -492,16 +600,18 @@ export const checkNodeData = (data: NodeData | null | undefined) => {
     // 输入/输出变量必须在当前工作区变量集合中声明
     if (data.input) {
       for (const v of data.input) {
-        if (v && !usingVars[v]) {
-          error(data, `input variable '${v}' is not defined`);
+        if (v?.name && !usingVars[v.name]) {
+          logDebug('checkNodeData', `输入变量未定义 - 节点: ${data.name}`, { node: data, variable: v.name });
+          error(data, `input variable '${v.name}' is not defined`);
           hasError = true;
         }
       }
     }
     if (data.output) {
       for (const v of data.output) {
-        if (v && !usingVars[v]) {
-          error(data, `output variable '${v}' is not defined`);
+        if (v?.name && !usingVars[v.name]) {
+          logDebug('checkNodeData', `输出变量未定义 - 节点: ${data.name}`, { node: data, variable: v.name });
+          error(data, `output variable '${v.name}' is not defined`);
           hasError = true;
         }
       }
@@ -509,9 +619,11 @@ export const checkNodeData = (data: NodeData | null | undefined) => {
   }
 
   if (data.args && conf.args) {
-    for (const arg of conf.args) {
-      const value = data.args?.[arg.name] as string | string[] | undefined;
-      if (isExprType(arg.type) && value) {
+    for (let i = 0; i < conf.args.length; i++) {
+      const arg = conf.args[i];
+      const argData = data.args[i];
+      const value = argData?.value as string | string[] | undefined;
+      if (isExprType(arg.value_type) && value) {
         // 表达式参数：校验使用的变量是否存在、以及可选的 dry-run 语法检查
         if (usingVars) {
           const vars: string[] = [];
@@ -523,7 +635,7 @@ export const checkNodeData = (data: NodeData | null | undefined) => {
             }
           }
           for (const v of vars) {
-            if (v && !usingVars[v]) {
+            if (v && !isVariableExists(v, usingVars)) {
               error(data, `expr variable '${arg.name}' is not defined`);
               hasError = true;
             }
@@ -571,21 +683,23 @@ export const checkNodeData = (data: NodeData | null | undefined) => {
         data.input = [];
       }
       if (!data.input[i]) {
-        data.input[i] = "";
+        data.input[i] = { name: "", type: ArgType.CONST_VAR, value_type: ValueType.STRING };
       }
-      if (data.input[i] && !isValidVariableName(data.input[i])) {
+      if (data.input[i]?.name && !isValidVariableName(data.input[i].name)) {
         error(
           data,
-          `input field '${data.input[i]}' is not a valid variable name,` +
+          `input field '${data.input[i].name}' is not a valid variable name,` +
             `should start with a letter or underscore`
         );
         hasError = true;
       }
-      if (!isValidInputOrOutput(conf.input, data.input, i)) {
-        error(data, `intput field '${conf.input[i]}' is required`);
+      if (conf.input && !isValidInputOrOutput(conf.input, data.input, i)) {
+        const inputDef = conf.input[i];
+        const inputName = typeof inputDef === 'string' ? inputDef : (inputDef as VarDecl)?.name;
+        error(data, `input field '${inputName}' is required`);
         hasError = true;
       }
-      if (i === conf.input.length - 1 && conf.input.at(-1)?.endsWith("...")) {
+      if (i === conf.input.length - 1 && isVariadic(conf.input, conf.input.length - 1)) {
         // 末项为可变参数：允许输入扩展
         hasVaridicInput = true;
       }
@@ -603,21 +717,23 @@ export const checkNodeData = (data: NodeData | null | undefined) => {
         data.output = [];
       }
       if (!data.output[i]) {
-        data.output[i] = "";
+        data.output[i] = { name: "", type: ArgType.CONST_VAR, value_type: ValueType.STRING };
       }
-      if (data.output[i] && !isValidVariableName(data.output[i])) {
+      if (data.output[i]?.name && !isValidVariableName(data.output[i].name)) {
         error(
           data,
-          `output field '${data.output[i]}' is not a valid variable name,` +
+          `output field '${data.output[i].name}' is not a valid variable name,` +
             `should start with a letter or underscore`
         );
         hasError = true;
       }
-      if (!isValidInputOrOutput(conf.output, data.output, i)) {
-        error(data, `output field '${conf.output[i]}' is required`);
+      if (conf.output && !isValidInputOrOutput(conf.output, data.output, i)) {
+        const outputDef = conf.output[i];
+        const outputName = typeof outputDef === 'string' ? outputDef : (outputDef as VarDecl)?.name;
+        error(data, `output field '${outputName}' is required`);
         hasError = true;
       }
-      if (i === conf.output.length - 1 && conf.output.at(-1)?.endsWith("...")) {
+      if (i === conf.output.length - 1 && isVariadic(conf.output, conf.output.length - 1)) {
         // 末项为可变参数：允许输出扩展
         hasVaridicOutput = true;
       }
@@ -628,24 +744,35 @@ export const checkNodeData = (data: NodeData | null | undefined) => {
     data.output.length = conf.output?.length || 0;
   }
   if (conf.args) {
-    const args: { [k: string]: unknown } = {};
-    for (let i = 0; i < conf.args.length; i++) {
-      const key = conf.args[i].name;
-      if (data.args && data.args[key] === undefined && conf.args[i].default !== undefined) {
-        // 赋默认值（保持序列化结果稳定）
-        data.args[key] = conf.args[i].default;
-      }
-
-      const value = data.args?.[key];
-      if (value !== undefined) {
-        args[key] = value;
+    if (!data.args) {
+      data.args = [];
+    }
+    
+    // 确保 data.args 有足够的元素
+     while (data.args.length < conf.args.length) {
+       data.args.push({ name: "", type: ArgType.CONST_VAR, value_type: ValueType.STRING, value: undefined });
+     }
+     
+     for (let i = 0; i < conf.args.length; i++) {
+       const argDef = conf.args[i];
+       if (!data.args[i]) {
+         data.args[i] = { 
+           name: argDef.name, 
+           type: argDef.type || ArgType.CONST_VAR, 
+           value_type: argDef.value_type || ValueType.STRING,
+           value: undefined 
+         };
+       }
+      
+      // 设置默认值
+      if (data.args[i].value === undefined && argDef.default !== undefined) {
+        data.args[i].value = argDef.default;
       }
 
       if (!checkNodeArg(data, conf, i, true)) {
         hasError = true;
       }
     }
-    data.args = args;
   }
 
   if (data.children) {
@@ -680,25 +807,13 @@ export const createNode = (data: NodeData, includeChildren: boolean = true) => {
     disabled: data.disabled,
   };
   if (data.input) {
-    node.input = [];
-    for (const v of data.input) {
-      node.input.push(v ?? "");
-    }
+    node.input = [...data.input];
   }
   if (data.output) {
-    node.output = [];
-    for (const v of data.output) {
-      node.output.push(v ?? "");
-    }
+    node.output = [...data.output];
   }
   if (data.args) {
-    node.args = {};
-    for (const k in data.args) {
-      const v = data.args[k];
-      if (v !== undefined) {
-        node.args[k] = v;
-      }
-    }
+    node.args = [...data.args];
   }
   if (data.children && !isSubtreeRoot(data) && includeChildren) {
     node.children = [];
@@ -840,11 +955,15 @@ export const isValidChildren = (data: NodeData) => {
  * @param i 位置索引，-1 表示尾项
  * @returns 是否为可变参数
  */
-export const isVariadic = (def: string[], i: number) => {
+export const isVariadic = (def: VarDecl[] | string[], i: number) => {
   if (i === -1) {
     i = def.length - 1;
   }
-  return def[i].endsWith("...") && i === def.length - 1;
+  if (typeof def[i] === 'string') {
+    return (def[i] as string).endsWith("...") && i === def.length - 1;
+  } else {
+    return (def[i] as VarDecl).name?.endsWith("...") && i === def.length - 1;
+  }
 };
 
 /**
@@ -854,8 +973,12 @@ export const isVariadic = (def: string[], i: number) => {
  * @param index 位置索引
  * @returns 是否有效
  */
-const isValidInputOrOutput = (def: string[], data: string[] | undefined, index: number) => {
-  return def[index].includes("?") || data?.[index] || isVariadic(def, index);
+const isValidInputOrOutput = (def: VarDecl[] | string[], data: VarDecl[] | string[] | undefined, index: number) => {
+  if (typeof def[index] === 'string') {
+    return (def[index] as string).includes("?") || data?.[index] || isVariadic(def, index);
+  } else {
+    return (def[index] as VarDecl).optional || data?.[index] || isVariadic(def, index);
+  }
 };
 
 /**
@@ -865,9 +988,17 @@ const isValidInputOrOutput = (def: string[], data: string[] | undefined, index: 
  */
 export const checkTreeData = (data: NodeData) => {
   const def = nodeDefs.get(data.name);
+  
   if (def.input) {
     for (let i = 0; i < def.input.length; i++) {
       if (!isValidInputOrOutput(def.input, data.input, i)) {
+        logDebug('TreeDataCheck', `节点输入验证失败 - 节点: ${data.name}`, {
+          nodeId: data.id,
+          inputIndex: i,
+          expectedInput: def.input[i],
+          actualInput: data.input?.[i],
+          allInputs: data.input
+        });
         return false;
       }
     }
@@ -875,16 +1006,36 @@ export const checkTreeData = (data: NodeData) => {
   if (def.output) {
     for (let i = 0; i < def.output.length; i++) {
       if (!isValidInputOrOutput(def.output, data.output, i)) {
+        logDebug('TreeDataCheck', `节点输出验证失败 - 节点: ${data.name}`, {
+          nodeId: data.id,
+          outputIndex: i,
+          expectedOutput: def.output[i],
+          actualOutput: data.output?.[i],
+          allOutputs: data.output
+        });
         return false;
       }
     }
   }
   if (!isValidChildren(data)) {
+    logDebug('TreeDataCheck', `节点子节点验证失败 - 节点: ${data.name}`, {
+      nodeId: data.id,
+      expectedChildren: def.children,
+      actualChildrenCount: data.children?.length || 0,
+      children: data.children
+    });
     return false;
   }
   if (def.args) {
     for (let i = 0; i < def.args.length; i++) {
       if (!checkNodeArg(data, def, i, false)) {
+        logDebug('TreeDataCheck', `节点参数验证失败 - 节点: ${data.name}`, {
+          nodeId: data.id,
+          argIndex: i,
+          expectedArg: def.args[i],
+          actualArg: data.args?.[i],
+          allArgs: data.args
+        });
         return false;
       }
     }
@@ -906,11 +1057,21 @@ export const refreshNodeData = (node: NodeData, id: number) => {
   const def = nodeDefs.get(node.name);
 
   if (def.args) {
-    node.args ||= {};
+    node.args ||= [];
     def.args.forEach((arg) => {
       assert(node.args);
-      if (node.args[arg.name] === undefined && arg.default !== undefined) {
-        node.args[arg.name] = arg.default;
+      const existingArg = node.args.find(a => a.name === arg.name);
+      if (!existingArg && arg.default !== undefined) {
+        node.args.push({
+          name: arg.name,
+          desc: arg.desc,
+          type: arg.type,
+          value_type: arg.value_type,
+          value: arg.default,
+          default: arg.default,
+          optional: arg.optional,
+          options: arg.options
+        });
       }
     });
   }
@@ -1075,7 +1236,13 @@ export const buildProject = async (project: string, buildDir: string) => {
       }
       const declare: FileVarDecl = {
         import: tree.import.map((v) => ({ path: v, vars: [], depends: [] })),
-        vars: tree.vars.map((v) => ({ name: v.name, desc: v.desc })),
+        vars: tree.vars.map((v) => ({ 
+          name: v.name, 
+          desc: v.desc,
+          type: v.type || ArgType.OBJECT_VAR,
+          value_type: v.value_type || ValueType.STRING,
+          value: v.value 
+        })),
         subtree: [],
       };
       // 刷新变量声明：导入文件与子树内的变量统一收集，重建 usingGroups/usingVars
@@ -1249,7 +1416,13 @@ const loadVarDecl = (list: ImportDecl[], arr: Array<VarDecl>) => {
     entry.depends = Array.from(depends).map((v) => ({ path: v, modified: files[v] }));
     parsedVarDecl[entry.path] = {
       path: entry.path,
-      vars: entry.vars.map((v) => ({ name: v.name, desc: v.desc })),
+      vars: entry.vars.map((v) => ({ 
+        name: v.name, 
+        desc: v.desc,
+        type: v.type || ArgType.OBJECT_VAR,
+        value_type: v.value_type || ValueType.STRING,
+        value: v.value
+      })),
       depends: entry.depends.slice(),
       modified: entry.modified,
     };
@@ -1320,4 +1493,54 @@ export const refreshVarDecl = (root: NodeData, group: string[], declare: FileVar
     updateUsingVars(vars);
   }
   return changed;
+};
+
+/**
+ * 统一的变量名格式化函数
+ * 为变量名添加类型标签，格式：变量名(类型标签)
+ * @param varName 变量名
+ * @param varType 变量类型
+ * @param t 翻译函数
+ * @returns 格式化后的变量名
+ */
+export const formatVariableLabel = (
+  varName: string, 
+  varType: string | undefined, 
+  t: any
+): string => {
+  const typeLabel = (() => {
+    switch (varType) {
+      case ArgType.CONST_VAR: return t("tree.vars.type.const");
+      case ArgType.OBJECT_VAR: return t("tree.vars.type.object");
+      case ArgType.CFG_VAR: return t("tree.vars.type.config");
+      case ArgType.CODE_VAR: return t("tree.vars.type.code");
+      case ArgType.JSON_VAR: return t("tree.vars.type.json");
+      default: return varType || t("tree.vars.type.object");
+    }
+  })();
+  return `${varName}(${typeLabel})`;
+};
+
+/**
+ * 获取变量的显示值（包含类型标签）
+ * @param variableName 变量名
+ * @param usingVars 变量声明映射
+ * @param t 翻译函数
+ * @returns 格式化后的变量显示值
+ */
+export const getVariableDisplayValue = (
+  variableName: string | undefined,
+  usingVars: Record<string, VarDecl> | null,
+  t: any
+): string => {
+  if (!variableName) return '';
+  
+  // 查找变量的类型信息
+  const varDecl = usingVars?.[variableName];
+  if (varDecl) {
+    return formatVariableLabel(variableName, varDecl.type || ArgType.OBJECT_VAR, t);
+  }
+  
+  // 如果找不到变量声明，默认显示为对象变量
+  return formatVariableLabel(variableName, ArgType.OBJECT_VAR, t);
 };

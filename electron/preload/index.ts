@@ -45,34 +45,34 @@
  * const result = await window.electronAPI.invoke('channel', data);
  */
 
-// contextBridge.exposeInMainWorld("ipcRenderer", {
-//   // 监听主进程消息
-//   on(...args: Parameters<typeof ipcRenderer.on>) {
-//     const [channel, listener] = args;
-//     return ipcRenderer.on(channel, (event, ...args) => listener(event, ...args));
-//   },
-//   
-//   // 取消监听
-//   off(...args: Parameters<typeof ipcRenderer.off>) {
-//     const [channel, ...omit] = args;
-//     return ipcRenderer.off(channel, ...omit);
-//   },
-//   
-//   // 发送单向消息
-//   send(...args: Parameters<typeof ipcRenderer.send>) {
-//     const [channel, ...omit] = args;
-//     return ipcRenderer.send(channel, ...omit);
-//   },
-//   
-//   // 发送请求并等待响应
-//   invoke(...args: Parameters<typeof ipcRenderer.invoke>) {
-//     const [channel, ...omit] = args;
-//     return ipcRenderer.invoke(channel, ...omit);
-//   },
-
-//   // 可以在这里暴露其他需要的 API
-//   // 例如：文件系统、对话框等
-//   // ...
+import { contextBridge, ipcRenderer } from "electron";
+if ((process as any)?.contextIsolated) {
+    contextBridge.exposeInMainWorld("electronAPI", {
+        // 监听主进程消息
+        on(...args: Parameters<typeof ipcRenderer.on>) {
+            const [channel, listener] = args;
+            return ipcRenderer.on(channel, (event, ...rest) => listener(event, ...rest));
+        },
+        // 取消监听
+        off(...args: Parameters<typeof ipcRenderer.off>) {
+            const [channel, ...omit] = args;
+            return ipcRenderer.off(channel, ...omit);
+        },
+        // 发送单向消息
+        send(...args: Parameters<typeof ipcRenderer.send>) {
+            const [channel, ...omit] = args;
+            return ipcRenderer.send(channel, ...omit);
+        },
+        // 发送请求并等待响应
+        invoke(...args: Parameters<typeof ipcRenderer.invoke>) {
+            const [channel, ...omit] = args;
+            return ipcRenderer.invoke(channel, ...omit);
+        },
+    });
+}
+// 可以在这里暴露其他需要的 API
+// 例如：文件系统、对话框等
+// ...
 // });
 
 // 暴露 process 对象（提供平台信息等）
@@ -98,19 +98,19 @@
  * 在操作 DOM 之前确保 DOM 已经就绪
  */
 function domReady(condition: DocumentReadyState[] = ["complete", "interactive"]) {
-  return new Promise((resolve) => {
-    // 如果文档已经处于目标状态，立即 resolve
-    if (condition.includes(document.readyState)) {
-      resolve(true);
-    } else {
-      // 否则监听状态变化
-      document.addEventListener("readystatechange", () => {
+    return new Promise((resolve) => {
+        // 如果文档已经处于目标状态，立即 resolve
         if (condition.includes(document.readyState)) {
-          resolve(true);
+            resolve(true);
+        } else {
+            // 否则监听状态变化
+            document.addEventListener("readystatechange", () => {
+                if (condition.includes(document.readyState)) {
+                    resolve(true);
+                }
+            });
         }
-      });
-    }
-  });
+    });
 }
 
 /**
@@ -120,25 +120,25 @@ function domReady(condition: DocumentReadyState[] = ["complete", "interactive"])
  * 避免 DOM 操作异常
  */
 const safeDOM = {
-  /**
-   * 安全地添加子元素
-   * 只有当子元素不存在时才添加
-   */
-  append(parent: HTMLElement, child: HTMLElement) {
-    if (!Array.from(parent.children).find((e) => e === child)) {
-      return parent.appendChild(child);
-    }
-  },
-  
-  /**
-   * 安全地移除子元素
-   * 只有当子元素存在时才移除
-   */
-  remove(parent: HTMLElement, child: HTMLElement) {
-    if (Array.from(parent.children).find((e) => e === child)) {
-      return parent.removeChild(child);
-    }
-  },
+    /**
+     * 安全地添加子元素
+     * 只有当子元素不存在时才添加
+     */
+    append(parent: HTMLElement, child: HTMLElement) {
+        if (!Array.from(parent.children).find((e) => e === child)) {
+            return parent.appendChild(child);
+        }
+    },
+
+    /**
+     * 安全地移除子元素
+     * 只有当子元素存在时才移除
+     */
+    remove(parent: HTMLElement, child: HTMLElement) {
+        if (Array.from(parent.children).find((e) => e === child)) {
+            return parent.removeChild(child);
+        }
+    },
 };
 
 /**
@@ -160,17 +160,17 @@ const safeDOM = {
  * @returns {Object} 包含 appendLoading 和 removeLoading 方法
  */
 function useLoading() {
-  const className = `loaders-css__square-spin`;
-  
-  /**
-   * CSS 样式定义
-   * 
-   * 包含：
-   * 1. square-spin 动画：3D 旋转的方块
-   * 2. 方块样式：50x50 白色方块
-   * 3. 容器样式：全屏居中深色背景
-   */
-  const styleContent = `
+    const className = `loaders-css__square-spin`;
+
+    /**
+     * CSS 样式定义
+     * 
+     * 包含：
+     * 1. square-spin 动画：3D 旋转的方块
+     * 2. 方块样式：50x50 白色方块
+     * 3. 容器样式：全屏居中深色背景
+     */
+    const styleContent = `
 @keyframes square-spin {
   25% { transform: perspective(100px) rotateX(180deg) rotateY(0); }
   50% { transform: perspective(100px) rotateX(180deg) rotateY(180deg); }
@@ -197,47 +197,47 @@ function useLoading() {
   z-index: 9;           /* 层级：在其他元素之上 */
 }
     `;
-  
-  // 创建 DOM 元素
-  const oStyle = document.createElement("style");  // <style> 标签
-  const oDiv = document.createElement("div");      // 容器 <div>
 
-  // 配置样式元素
-  oStyle.id = "app-loading-style";
-  oStyle.innerHTML = styleContent;
-  
-  // 配置容器元素
-  oDiv.className = "app-loading-wrap";
-  oDiv.innerHTML = `<div class="${className}"><div></div></div>`;
+    // 创建 DOM 元素
+    const oStyle = document.createElement("style");  // <style> 标签
+    const oDiv = document.createElement("div");      // 容器 <div>
 
-  return {
-    /**
-     * 添加加载动画
-     * 
-     * 将样式和动画元素添加到页面
-     * 
-     * ⚠️ 注意：当前被注释掉了
-     * 可能是因为觉得加载速度足够快，不需要动画
-     */
-    appendLoading() {
-      // safeDOM.append(document.head, oStyle);  // 添加样式到 <head>
-      // safeDOM.append(document.body, oDiv);    // 添加动画到 <body>
-    },
-    
-    /**
-     * 移除加载动画
-     * 
-     * 从页面中移除样式和动画元素
-     * 
-     * 触发时机：
-     * 1. React 应用发送 "removeLoading" 消息
-     * 2. 超时 5 秒自动移除
-     */
-    removeLoading() {
-      safeDOM.remove(document.head, oStyle);  // 移除样式
-      safeDOM.remove(document.body, oDiv);    // 移除动画
-    },
-  };
+    // 配置样式元素
+    oStyle.id = "app-loading-style";
+    oStyle.innerHTML = styleContent;
+
+    // 配置容器元素
+    oDiv.className = "app-loading-wrap";
+    oDiv.innerHTML = `<div class="${className}"><div></div></div>`;
+
+    return {
+        /**
+         * 添加加载动画
+         * 
+         * 将样式和动画元素添加到页面
+         * 
+         * ⚠️ 注意：当前被注释掉了
+         * 可能是因为觉得加载速度足够快，不需要动画
+         */
+        appendLoading() {
+            // safeDOM.append(document.head, oStyle);  // 添加样式到 <head>
+            // safeDOM.append(document.body, oDiv);    // 添加动画到 <body>
+        },
+
+        /**
+         * 移除加载动画
+         * 
+         * 从页面中移除样式和动画元素
+         * 
+         * 触发时机：
+         * 1. React 应用发送 "removeLoading" 消息
+         * 2. 超时 5 秒自动移除
+         */
+        removeLoading() {
+            safeDOM.remove(document.head, oStyle);  // 移除样式
+            safeDOM.remove(document.body, oDiv);    // 移除动画
+        },
+    };
 }
 
 // ============================================
@@ -297,8 +297,8 @@ domReady().then(appendLoading);
  * 这是一种简单的同源通信方式，不需要 IPC
  */
 window.onmessage = (ev) => {
-  // 检查消息内容是否为 "removeLoading"
-  ev.data.payload === "removeLoading" && removeLoading();
+    // 检查消息内容是否为 "removeLoading"
+    ev.data.payload === "removeLoading" && removeLoading();
 };
 
 /**

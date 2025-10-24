@@ -30,7 +30,7 @@
  * 用户操作 → 快捷键/事件 → workspace状态更新 → 组件重渲染
  */
 
-import { app } from "@electron/remote";
+import { ipcRenderer } from "electron";
 import { Button, Flex, Layout, Space, Tabs, Tag, Tooltip } from "antd";
 import { FC, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -139,6 +139,14 @@ export const Workspace: FC = () => {
 
   /** 键盘事件监听的 DOM 引用 */
   const keysRef = useRef<HTMLDivElement>(null);
+
+  /** 用户主目录路径 */
+  const [homedir, setHomedir] = useState<string>("");
+
+  // 异步获取用户主目录
+  useEffect(() => {
+    ipcRenderer.invoke("get-app-path", "home").then(setHomedir);
+  }, []);
 
   // ============ 全局快捷键 ============
 
@@ -656,7 +664,6 @@ export const Workspace: FC = () => {
                   <div style={{ fontSize: "22px", fontWeight: "500" }}>{t("recent")}</div>
                   <div style={{ overflow: "auto", height: "100%" }}>
                     {settings.recent.map((path) => {
-                      const homedir = app.getPath("home");
                       return (
                         <div key={path}>
                           <span
@@ -805,13 +812,14 @@ export const Workspace: FC = () => {
                       placement="bottom"
                       mouseEnterDelay={1}
                       color="#010409"
-                      overlayStyle={{ userSelect: "none", WebkitUserSelect: "none" }}
-                      autoAdjustOverflow={true}
-                      overlayInnerStyle={{
+                      overlayStyle={{
+                        userSelect: "none",
+                        WebkitUserSelect: "none",
                         width: "fit-content",
                         border: "1px solid var(--b3-color-border)",
                         borderRadius: "4px",
                       }}
+                      autoAdjustOverflow={true}
                       title={<div style={{ width: "max-content" }}>{v.path}</div>}
                     >
                       {/* 文件名 + 修改标记 */}

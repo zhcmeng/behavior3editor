@@ -1,48 +1,6 @@
 {
-  "files": [
-    {
-      "path": "vars/declare-core.json",
-      "desc": ""
-    },
-    {
-      "path": "vars/declare-vars.json",
-      "desc": ""
-    },
-    {
-      "path": "vars/test-subtree.json",
-      "desc": ""
-    },
-    {
-      "path": "vars/test-vars.json",
-      "desc": ""
-    },
-    {
-      "path": "workdir/hero.json",
-      "desc": "英雄测试AI"
-    },
-    {
-      "path": "workdir/monster.json",
-      "desc": "怪物测试AI"
-    },
-    {
-      "path": "workdir/sub/subtree1.json",
-      "desc": "子树1"
-    },
-    {
-      "path": "workdir/sub/subtree2.json",
-      "desc": "子树2"
-    },
-    {
-      "path": "workdir/subtree1.json",
-      "desc": "子树1"
-    },
-    {
-      "path": "workdir/subtree2.json",
-      "desc": "子树2"
+    "settings": {
+        "checkExpr": true,
+        "buildScript": "scripts/build.js"
     }
-  ],
-  "settings": {
-    "checkExpr": true,
-    "buildScript": "scripts/build.js"
-  }
 }

@@ -1,0 +1,13 @@
+{
+    "name": "IsNull",
+    "type": "Condition",
+    "desc": "判断变量是否不存在",
+    "input": [
+        {
+            "name": "variable_to_check",
+            "desc": "判断的变量",
+            "type": "object_var",
+            "value_type": "any"
+        }
+    ]
+}

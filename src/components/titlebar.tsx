@@ -13,7 +13,7 @@ import { SearchOutlined } from "@ant-design/icons";
 import { Button, Flex, LayoutProps, Select } from "antd";
 import React, { FC, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { NodeDef } from "../behavior3/src/behavior3";
+import { NodeDef } from "../misc/b3type";
 import { useWorkspace } from "../contexts/workspace-context";
 import { Hotkey, isMacos } from "../misc/keys";
 import Path from "../misc/path";
@@ -28,7 +28,7 @@ interface OptionType {
 
 export const TitleBar: FC<LayoutProps> = () => {
   const workspace = useWorkspace(
-    useShallow((state) => ({
+    useShallow((state: any) => ({
       allFiles: state.allFiles,
       fileTree: state.fileTree,
       nodeDefs: state.nodeDefs,
@@ -49,7 +49,7 @@ export const TitleBar: FC<LayoutProps> = () => {
    */
   const searchOptions = useMemo(() => {
     const options: OptionType[] = [];
-    workspace.allFiles.forEach((file) => {
+    workspace.allFiles.forEach((file: { path: string; desc?: string }) => {
       const value = workspace.relative(file.path);
       const desc = file.desc ?? "";
       options.push({
@@ -66,7 +66,7 @@ export const TitleBar: FC<LayoutProps> = () => {
         path: file.path,
       });
     });
-    workspace.nodeDefs.forEach((def) => {
+    workspace.nodeDefs.forEach((def: NodeDef) => {
       const value = def.name;
       const desc = def.desc ?? "";
       options.push({
@@ -141,7 +141,7 @@ export const TitleBar: FC<LayoutProps> = () => {
             onBlur={() => workspace.onShowingSearch(false)}
             onChange={(_, option) => {
               // 单选模式：根据选项类型执行打开文件或编辑节点定义
-              if (!(option instanceof Array)) {
+              if (!(option instanceof Array) && option) {
                 workspace.onShowingSearch(false);
                 if (option.path) {
                   workspace.open(option.path);

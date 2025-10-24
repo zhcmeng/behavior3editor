@@ -1,4 +1,3 @@
-import { BrowserWindow } from "@electron/remote";
 import _useKeyPress, { KeyFilter, KeyType, Options, Target } from "ahooks/lib/useKeyPress";
 import { Key } from "ts-key-enum";
 
@@ -55,40 +54,24 @@ export const setInputFocus = (target: HTMLElement) => {
 };
 
 export const sendInputEvent = (key: string) => {
-  const webContents = BrowserWindow.getFocusedWindow()?.webContents;
-  if (webContents) {
-    let keyCode: string | undefined;
-    const modifiers: Electron.InputEvent["modifiers"] = [];
-    key.split(".").forEach((v) => {
-      if (v.indexOf("ctrl") >= 0) {
-        modifiers.push("ctrl");
-      } else if (v.indexOf("shift") >= 0) {
-        modifiers.push("shift");
-      } else if (v.indexOf("alt") >= 0) {
-        modifiers.push("alt");
-      } else if (v.indexOf("meta") >= 0) {
-        modifiers.push("meta");
-      } else {
-        keyCode = v;
-      }
+  // 简化实现：直接聚焦目标元素
+  // 原来的实现依赖 @electron/remote，现在改为更简单的方式
+  if (forceTarget) {
+    forceTarget.focus();
+    
+    // 创建并分发键盘事件
+    const event = new KeyboardEvent('keydown', {
+      key: key,
+      bubbles: true,
+      cancelable: true
     });
-    if (!keyCode) {
-      return;
-    }
-    forceTarget?.focus();
-    modifiers.forEach((mod) => {
-      webContents.sendInputEvent({
-        type: "keyDown",
-        keyCode: mod,
-      });
+    forceTarget.dispatchEvent(event);
+    
+    const upEvent = new KeyboardEvent('keyup', {
+      key: key,
+      bubbles: true,
+      cancelable: true
     });
-    webContents.sendInputEvent({ type: "keyDown", keyCode: keyCode, modifiers: modifiers });
-    webContents.sendInputEvent({ type: "keyUp", keyCode: keyCode, modifiers: modifiers });
-    modifiers.forEach((mod) => {
-      webContents.sendInputEvent({
-        type: "keyUp",
-        keyCode: mod,
-      });
-    });
+    forceTarget.dispatchEvent(upEvent);
   }
 };

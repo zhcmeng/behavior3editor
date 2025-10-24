@@ -1,0 +1,13 @@
+{
+    "name": "Attack",
+    "type": "Action",
+    "desc": "攻击",
+    "input": [
+        {
+            "name": "target",
+            "desc": "目标",
+            "type": "object_var",
+            "value_type": "object"
+        }
+    ]
+}

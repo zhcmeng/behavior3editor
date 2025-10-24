@@ -1,0 +1,20 @@
+{
+    "version": "1.8.5",
+    "name": "ai_cfg",
+    "desc": "AI配置",
+    "prefix": "",
+    "export": true,
+    "group": [],
+    "import": [],
+    "vars": [
+        {
+            "name": "max_trace_distance",
+            "desc": "最大跟踪距离(单位：米)",
+            "type": "cfg_var"
+        }
+    ],
+    "root": {
+        "id": "1",
+        "name": "Idle"
+    }
+}

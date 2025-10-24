@@ -6,11 +6,112 @@
  * - 行为树数据结构（TreeData）
  * - 变量和导入声明
  * - 类型检查工具函数
+ * - 从运行时引擎提取的必要类型定义
  * 
  * 这些类型定义了行为树的存储格式（JSON），也是编辑器和运行时之间的数据契约。
  */
 
-import { NodeDef } from "../behavior3/src/behavior3";
+// ============================================
+// 从运行时引擎提取的类型定义
+// ============================================
+
+/**
+ * 节点执行状态枚举
+ */
+export const enum Status {
+  SUCCESS = "success",
+  FAILURE = "failure", 
+  RUNNING = "running"
+}
+
+/**
+ * 对象类型定义
+ */
+export type ObjectType = { [k: string]: unknown };
+
+/**
+ * 构造函数类型
+ */
+export type Constructor<T, A extends any[] = any[]> = new (...args: A) => T;
+
+/**
+ * 深度只读类型
+ */
+export type DeepReadonly<T> = T extends object
+    ? { readonly [P in keyof T]: DeepReadonly<T[P]> }
+    : T;
+
+/**
+ * 表达式求值器类
+ */
+export class ExpressionEvaluator {
+    private _postfix: any[];
+    private _args: ObjectType | null = null;
+    private _expr: string;
+
+    constructor(expression: string) {
+        this._expr = expression;
+        this._postfix = [];
+    }
+
+    evaluate(args: ObjectType): unknown {
+        // 简化的求值实现，仅用于编辑器类型检查
+        return undefined;
+    }
+
+    dryRun(): boolean {
+        // 简化的干运行实现
+        return true;
+    }
+}
+
+/**
+ * 节点定义接口
+ */
+export interface NodeDef {
+    /** 节点名称 */
+    readonly name: string;
+    /** 节点类型 */
+    readonly type: "Action" | "Composite" | "Condition" | "Decorator";
+    /** 节点描述 */
+    readonly desc?: string;
+    /** 输入变量定义 */
+    readonly input?: VarDecl[];
+    /** 输出变量定义 */
+    readonly output?: VarDecl[];
+    /** 参数定义 */
+    readonly args?: VarDecl[];
+    /** 文档链接 */
+    readonly doc?: string;
+    /** 图标 */
+    readonly icon?: string;
+    /** 颜色 */
+    readonly color?: string;
+    /** 分组 */
+    readonly group?: string[];
+    /** 状态 */
+    readonly status?: string[];
+    /** 子节点数量限制 */
+    readonly children?: number;
+}
+
+/**
+ * 节点基类（简化版，仅用于编辑器）
+ */
+export abstract class Node {
+    constructor(public readonly def: NodeDef) {}
+}
+
+/**
+ * 上下文基类（简化版，仅用于编辑器）
+ */
+export abstract class Context {
+    readonly nodeDefs: Record<string, DeepReadonly<NodeDef>> = {};
+    
+    constructor() {}
+    
+    abstract loadTree(path: string): Promise<Node>;
+}
 
 // ============================================
 // 第一部分：全局常量
@@ -39,7 +140,100 @@ export const VERSION = "1.8.5";
 export const keyWords = ["true", "false", "null", "undefined", "NaN", "Infinity"];
 
 // ============================================
-// 第二部分：类型别名
+// 第二部分：枚举定义
+// ============================================
+
+/**
+ * 行为树变量类型枚举
+ * 
+ * 定义了行为树中变量的四种类型：
+ * - 常量：编译时确定的固定值
+ * - 对象变量：运行时从环境变量中获取
+ * - 配置参数：从配置对象中读取的值
+ * - 代码表达式：需要动态执行的表达式
+ */
+export const enum ArgType {
+  /** 常量 - 编译时确定的固定值 */
+  CONST_VAR = "const_var",
+  /** 对象变量 - 运行时从环境变量中获取 */
+  OBJECT_VAR = "object_var", 
+  /** 配置参数 - 从配置对象中读取（cfg.json） */
+  CFG_VAR = "cfg_var",
+  /** 代码表达式 - 需要动态执行的表达式 */
+  CODE_VAR = "code_var",
+  /** JSON 变量 - 存储和传递 JSON 格式数据 */
+  JSON_VAR = "json_var",
+}
+
+/**
+ * 节点参数值类型枚举
+ * 
+ * 定义了节点参数支持的所有数据类型：
+ * - 基础类型：bool, int, float, string, json, expr
+ * - 可选类型：在基础类型后加 ?
+ * - 数组类型：在基础类型后加 []
+ * - 可选数组：在数组类型后加 ?
+ */
+export const enum ValueType {
+  // 基础类型
+  /** 布尔值 */
+  BOOL = "bool",
+  /** 整数 */
+  INT = "int", 
+  /** 浮点数 */
+  FLOAT = "float",
+  /** 字符串 */
+  STRING = "string",
+  /** JSON 对象 */
+  JSON = "json",
+  /** 表达式 */
+  EXPR = "expr",
+  
+  // 可选类型
+  /** 可选布尔值 */
+  BOOL_OPTIONAL = "bool?",
+  /** 可选整数 */
+  INT_OPTIONAL = "int?",
+  /** 可选浮点数 */
+  FLOAT_OPTIONAL = "float?",
+  /** 可选字符串 */
+  STRING_OPTIONAL = "string?",
+  /** 可选 JSON 对象 */
+  JSON_OPTIONAL = "json?",
+  /** 可选表达式 */
+  EXPR_OPTIONAL = "expr?",
+  
+  // 数组类型
+  /** 布尔值数组 */
+  BOOL_ARRAY = "bool[]",
+  /** 整数数组 */
+  INT_ARRAY = "int[]",
+  /** 浮点数数组 */
+  FLOAT_ARRAY = "float[]",
+  /** 字符串数组 */
+  STRING_ARRAY = "string[]",
+  /** JSON 对象数组 */
+  JSON_ARRAY = "json[]",
+  /** 表达式数组 */
+  EXPR_ARRAY = "expr[]",
+  
+  // 可选数组类型
+  /** 可选布尔值数组 */
+  BOOL_ARRAY_OPTIONAL = "bool[]?",
+  /** 可选整数数组 */
+  INT_ARRAY_OPTIONAL = "int[]?",
+  /** 可选浮点数数组 */
+  FLOAT_ARRAY_OPTIONAL = "float[]?",
+  /** 可选字符串数组 */
+  STRING_ARRAY_OPTIONAL = "string[]?",
+  /** 可选 JSON 对象数组 */
+  JSON_ARRAY_OPTIONAL = "json[]?",
+  /** 可选表达式数组 */
+  EXPR_ARRAY_OPTIONAL = "expr[]?",
+}
+
+// ============================================
+// 第三部分：类型别名
 // ============================================
 
 /**
@@ -58,19 +252,42 @@ export const keyWords = ["true", "false", "null", "undefined", "NaN", "Infinity"
 export type NodeType = NodeDef["type"] | "Other" | "Error";
 
 /**
- * 节点参数类型
+ * 选项声明接口
  * 
- * 从 NodeDef 的 args 数组中提取单个参数的类型
- * 
- * 使用 TypeScript 工具类型：
- * - Exclude: 排除 undefined（确保 args 存在）
- * - [number]: 获取数组元素类型
+ * 用于定义节点参数的可选值列表，支持下拉选择框等 UI 组件
  * 
  * 示例：
- * NodeDef.args = [{ name: "value", type: "int", desc: "数值" }]
- * NodeArg = { name: string, type: string, desc: string, ... }
+ * ```typescript
+ * const logLevelOptions: OptionDecl[] = [
+ *   { name: "INFO", value: "info", desc: "信息级别日志" },
+ *   { name: "DEBUG", value: "debug", desc: "调试级别日志" },
+ *   { name: "ERROR", value: "error", desc: "错误级别日志" }
+ * ];
+ * ```
  */
-export type NodeArg = Exclude<NodeDef["args"], undefined>[number];
+export interface OptionDecl {
+  /** 选项显示名称 */
+  name: string;
+  /** 选项实际值 */
+  value: unknown;
+  /** 选项描述（可选） */
+  desc?: string;
+}
+
+/**
+ * NodeArg - 节点参数类型
+ * 
+ * 统一使用 VarDecl 作为节点参数类型，确保类型一致性
+ * 
+ * 这样做的好处：
+ * - 统一变量声明和节点参数的数据结构
+ * - 便于代码复用和维护
+ * - 类型检查更加严格
+ * 
+ * 示例：
+ * NodeArg = { name: string, desc: string, type: VarType, value_type: ValueType, ... }
+ */
+export type NodeArg = VarDecl;
 
 // ============================================
 // 第三部分：类型检查工具函数
@@ -197,232 +414,227 @@ export const hasArgOptions = (arg: NodeArg) => arg.options !== undefined;
  * }
  */
 export interface NodeData {
-  /**
-   * 节点唯一标识符
-   * 
-   * 格式：通常是 "node_" + 递增数字（如 "node_1", "node_2"）
-   * 用途：
-   * - 在树结构中引用节点
-   * - 建立父子关系
-   * - G6 图形库的节点 ID
-   */
-  id: string;
+    /**
+     * 节点唯一标识符
+     * 
+     * 格式：通常是 "node_" + 递增数字（如 "node_1", "node_2"）
+     * 用途：
+     * - 在树结构中引用节点
+     * - 建立父子关系
+     * - G6 图形库的节点 ID
+     */
+    id: string;
 
-  /**
-   * 节点类型名称
-   * 
-   * 对应节点定义（NodeDef）中的 name 字段
-   * 
-   * 示例：
-   * - "Wait"        等待节点
-   * - "Sequence"    顺序执行节点
-   * - "Selector"    选择执行节点
-   * - "FindEnemy"   自定义节点
-   * 
-   * 用途：
-   * - 查找节点定义（从 node-config.b3-setting）
-   * - 决定节点的图标、颜色
-   * - 运行时创建对应的节点实例
-   */
-  name: string;
+    /**
+     * 节点类型名称
+     * 
+     * 对应节点定义（NodeDef）中的 name 字段
+     * 
+     * 示例：
+     * - "Wait"        等待节点
+     * - "Sequence"    顺序执行节点
+     * - "Selector"    选择执行节点
+     * - "FindEnemy"   自定义节点
+     * 
+     * 用途：
+     * - 查找节点定义（从 node-config.b3-setting）
+     * - 决定节点的图标、颜色
+     * - 运行时创建对应的节点实例
+     */
+    name: string;
 
-  /**
-   * 节点描述（可选）
-   * 
-   * 用户自定义的节点说明，帮助理解这个节点的具体用途
-   * 
-   * 示例：
-   * - "检查玩家是否在攻击范围内"
-   * - "等待 2 秒后继续"
-   * 
-   * 显示位置：
-   * - 节点悬停提示
-   * - 属性检查器
-   */
-  desc?: string;
+    /**
+     * 节点描述（可选）
+     * 
+     * 用户自定义的节点说明，帮助理解这个节点的具体用途
+     * 
+     * 示例：
+     * - "检查玩家是否在攻击范围内"
+     * - "等待 2 秒后继续"
+     * 
+     * 显示位置：
+     * - 节点悬停提示
+     * - 属性检查器
+     */
+    desc?: string;
 
-  /**
-   * 节点参数（可选）
-   * 
-   * 键值对形式存储节点的配置参数
-   * 键名对应 NodeDef.args[].name
-   * 值的类型由 NodeDef.args[].type 决定
-   * 
-   * 示例：
-   * {
-   *   "time": 1.5,          // 浮点数参数
-   *   "count": 10,          // 整数参数
-   *   "message": "Hello",   // 字符串参数
-   *   "enabled": true       // 布尔参数
-   * }
-   * 
-   * 用途：
-   * - 配置节点行为
-   * - 在属性检查器中编辑
-   * - 运行时读取配置
-   */
-  args?: { [key: string]: unknown };
+    /**
+     * 节点参数（可选）
+     * 
+     * 使用 VarDecl 格式存储节点的配置参数，支持多种变量类型
+     * 
+     * 示例：
+     * [
+     *   { name: "time", desc: "等待时间", type: "const_var", value_type: "float", value: 1.5 },
+     *   { name: "count", desc: "重试次数", type: "object_var", value_type: "int" },
+     *   { name: "message", desc: "日志消息", type: "const_var", value_type: "string", value: "Hello" }
+     * ]
+     * 
+     * 用途：
+     * - 配置节点行为
+     * - 在属性检查器中编辑
+     * - 支持常量、变量、表达式等多种类型
+     */
+    args?: VarDecl[];
 
-  /**
-   * 输入变量列表（可选）
-   * 
-   * 从黑板（Blackboard）读取的变量名列表
-   * 
-   * 示例：
-   * ["target", "range", "damage"]
-   * 
-   * 工作流程：
-   * 1. 节点执行前，从黑板读取这些变量
-   * 2. 赋值给节点的 input 属性
-   * 3. 节点使用这些值进行计算
-   * 
-   * 对应关系：
-   * NodeDef.input = ["target", "range"]  // 定义需要的输入
-   * NodeData.input = ["enemy", "10"]    // 实际绑定的变量名
-   */
-  input?: string[];
+    /**
+     * 输入变量列表（可选）
+     * 
+     * 使用 VarDecl 格式定义节点的输入变量，支持类型检查和默认值
+     * 
+     * 示例：
+     * [
+     *   { name: "target", desc: "攻击目标", type: "object_var", value_type: "string" },
+     *   { name: "range", desc: "攻击范围", type: "const_var", value_type: "float", value: 10.0, optional: true }
+     * ]
+     * 
+     * 用途：
+     * - 定义节点需要的输入数据
+     * - 支持类型验证和默认值
+     * - 提供更丰富的编辑体验
+     */
+    input?: VarDecl[];
 
-  /**
-   * 输出变量列表（可选）
-   * 
-   * 写入黑板的变量名列表
-   * 
-   * 示例：
-   * ["result", "success"]
-   * 
-   * 工作流程：
-   * 1. 节点执行完成
-   * 2. 将结果写入 output 数组
-   * 3. 黑板按照这里的变量名保存
-   * 
-   * 对应关系：
-   * NodeDef.output = ["target"]      // 定义输出的数量
-   * NodeData.output = ["foundEnemy"] // 实际的变量名
-   */
-  output?: string[];
+    /**
+     * 输出变量列表（可选）
+     * 
+     * 使用 VarDecl 格式定义节点的输出变量，支持类型声明
+     * 
+     * 示例：
+     * [
+     *   { name: "result", desc: "执行结果", type: "object_var", value_type: "bool" },
+     *   { name: "damage", desc: "造成伤害", type: "object_var", value_type: "int" }
+     * ]
+     * 
+     * 用途：
+     * - 定义节点产生的输出数据
+     * - 支持类型声明和验证
+     * - 便于下游节点使用
+     */
+    output?: VarDecl[];
 
-  /**
-   * 子节点列表（可选）
-   * 
-   * 只有 Composite 和 Decorator 节点才有子节点
-   * 
-   * 节点类型限制：
-   * - Action/Condition:  children 必须为空或 undefined
-   * - Decorator:         children 长度必须为 1
-   * - Composite:         children 可以有多个
-   * 
-   * 递归结构：
-   * NodeData 可以包含 NodeData[]，形成树形结构
-   * 
-   * 示例：
-   * {
-   *   "id": "1",
-   *   "name": "Sequence",
-   *   "children": [
-   *     { "id": "2", "name": "Wait", "args": { "time": 1 } },
-   *     { "id": "3", "name": "Log", "args": { "message": "Done" } }
-   *   ]
-   * }
-   */
-  children?: NodeData[];
+    /**
+     * 子节点列表（可选）
+     * 
+     * 只有 Composite 和 Decorator 节点才有子节点
+     * 
+     * 节点类型限制：
+     * - Action/Condition:  children 必须为空或 undefined
+     * - Decorator:         children 长度必须为 1
+     * - Composite:         children 可以有多个
+     * 
+     * 递归结构：
+     * NodeData 可以包含 NodeData[]，形成树形结构
+     * 
+     * 示例：
+     * {
+     *   "id": "1",
+     *   "name": "Sequence",
+     *   "children": [
+     *     { "id": "2", "name": "Wait", "args": { "time": 1 } },
+     *     { "id": "3", "name": "Log", "args": { "message": "Done" } }
+     *   ]
+     * }
+     */
+    children?: NodeData[];
 
-  /**
-   * 调试模式（可选）
-   * 
-   * 启用后，运行时会输出这个节点的详细执行信息
-   * 
-   * 用途：
-   * - 调试行为树逻辑
-   * - 查看节点的输入输出
-   * - 追踪执行流程
-   * 
-   * 显示：
-   * - 编辑器中以特殊样式标记
-   * - 运行时输出日志
-   */
-  debug?: boolean;
+    /**
+     * 调试模式（可选）
+     * 
+     * 启用后，运行时会输出这个节点的详细执行信息
+     * 
+     * 用途：
+     * - 调试行为树逻辑
+     * - 查看节点的输入输出
+     * - 追踪执行流程
+     * 
+     * 显示：
+     * - 编辑器中以特殊样式标记
+     * - 运行时输出日志
+     */
+    debug?: boolean;
 
-  /**
-   * 禁用状态（可选）
-   * 
-   * 禁用的节点在运行时会被跳过（直接返回 success）
-   * 
-   * 用途：
-   * - 临时禁用某个节点进行测试
-   * - 不删除节点但暂时不执行
-   * 
-   * 显示：
-   * - 编辑器中以灰色显示
-   * - 节点上有禁用图标
-   */
-  disabled?: boolean;
+    /**
+     * 禁用状态（可选）
+     * 
+     * 禁用的节点在运行时会被跳过（直接返回 success）
+     * 
+     * 用途：
+     * - 临时禁用某个节点进行测试
+     * - 不删除节点但暂时不执行
+     * 
+     * 显示：
+     * - 编辑器中以灰色显示
+     * - 节点上有禁用图标
+     */
+    disabled?: boolean;
 
-  /**
-   * 子树路径（可选）
-   * 
-   * 如果这个节点引用了外部子树，path 指向子树文件的相对路径
-   * 
-   * 示例：
-   * - "sub/attack.json"
-   * - "./subtree1.json"
-   * 
-   * 工作流程：
-   * 1. 编辑器检测到 path 属性
-   * 2. 加载对应的子树文件
-   * 3. 显示为特殊的子树节点
-   * 4. 运行时动态加载子树
-   */
-  path?: string;
+    /**
+     * 子树路径（可选）
+     * 
+     * 如果这个节点引用了外部子树，path 指向子树文件的相对路径
+     * 
+     * 示例：
+     * - "sub/attack.json"
+     * - "./subtree1.json"
+     * 
+     * 工作流程：
+     * 1. 编辑器检测到 path 属性
+     * 2. 加载对应的子树文件
+     * 3. 显示为特殊的子树节点
+     * 4. 运行时动态加载子树
+     */
+    path?: string;
 
-  // ============================================
-  // 运行时属性（不保存到文件）
-  // ============================================
+    // ============================================
+    // 运行时属性（不保存到文件）
+    // ============================================
 
-  /**
-   * 文件修改时间（运行时）
-   * 
-   * 子树文件的最后修改时间戳（毫秒）
-   * 用于检测文件变化，决定是否重新加载
-   * 
-   * 仅在内存中，不保存到 JSON
-   */
-  mtime?: number;
+    /**
+     * 文件修改时间（运行时）
+     * 
+     * 子树文件的最后修改时间戳（毫秒）
+     * 用于检测文件变化，决定是否重新加载
+     * 
+     * 仅在内存中，不保存到 JSON
+     */
+    mtime?: number;
 
-  /**
-   * 节点尺寸（运行时）
-   * 
-   * G6 图形库中节点的宽高：[width, height]
-   * 
-   * 示例：[120, 60]
-   * 
-   * 用途：
-   * - 布局计算
-   * - 碰撞检测
-   * - 渲染节点
-   * 
-   * 仅在内存中，不保存到 JSON
-   */
-  size?: number[];
+    /**
+     * 节点尺寸（运行时）
+     * 
+     * G6 图形库中节点的宽高：[width, height]
+     * 
+     * 示例：[120, 60]
+     * 
+     * 用途：
+     * - 布局计算
+     * - 碰撞检测
+     * - 渲染节点
+     * 
+     * 仅在内存中，不保存到 JSON
+     */
+    size?: number[];
 
-  /**
-   * 节点执行状态（运行时）
-   * 
-   * 行为树运行时的节点状态，用于可视化调试
-   * 
-   * 状态值：
-   * - 0: 未执行
-   * - 1: 成功 (success)
-   * - 2: 失败 (failure)
-   * - 3: 运行中 (running)
-   * 
-   * 用途：
-   * - 实时调试界面
-   * - 显示节点的执行状态
-   * - 高亮当前执行的节点
-   * 
-   * 仅在内存中，不保存到 JSON
-   */
-  status?: number;
+    /**
+     * 节点执行状态（运行时）
+     * 
+     * 行为树运行时的节点状态，用于可视化调试
+     * 
+     * 状态值：
+     * - 0: 未执行
+     * - 1: 成功 (success)
+     * - 2: 失败 (failure)
+     * - 3: 运行中 (running)
+     * 
+     * 用途：
+     * - 实时调试界面
+     * - 显示节点的执行状态
+     * - 高亮当前执行的节点
+     * 
+     * 仅在内存中，不保存到 JSON
+     */
+    status?: number;
 }
 
 /**
@@ -449,6 +661,8 @@ export type NodeLayout = "compact" | "normal";
  * 示例：
  * {
  *   "name": "enemyCount",
+ *   "type": "object_var",
+ *   "value_type": "int",
  *   "desc": "当前敌人数量"
  * }
  */
@@ -457,13 +671,13 @@ export interface VarDecl {
    * 变量名
    * 
    * 命名规则：
-   * - 推荐驼峰命名法（camelCase）
+   * - 推荐使用下划线命名法（snake_case）
    * - 不能使用保留关键字
    * 
    * 示例：
    * - "target"
-   * - "playerLevel"
-   * - "isAlive"
+   * - "player_level"
+   * - "is_alive"
    */
   name: string;
 
@@ -476,7 +690,54 @@ export interface VarDecl {
    * - "攻击目标，类型：敌人对象"
    * - "玩家等级，范围：1-100"
    */
-  desc: string;
+  desc?: string;
+
+  /**
+   * 变量类型
+   * 
+   * 定义变量的具体类型和行为
+   */
+  type: ArgType;
+
+  /**
+   * 值类型
+   * 
+   * 定义变量值的具体类型，用于类型检查和验证
+   */
+  value_type: ValueType;
+
+  /**
+   * 变量值
+   * 
+   * 根据变量类型存储不同的值：
+   * - 常量：具体的值
+   * - 对象变量：undefined（运行时设置）
+   * - 配置参数：配置路径字符串
+   * - 代码表达式：表达式字符串
+   */
+  value?: unknown;
+
+  /**
+   * 默认值（可选）
+   * 
+   * 当变量未被赋值时使用的默认值
+   * 
+   * 示例：
+   * - 0
+   * - false
+   * - "default"
+   */
+  default?: unknown;
+  
+  /**
+   * 是否为可选参数
+   * 
+   * 当为 true 时，该变量可以不提供值
+   */
+  optional?: boolean;
+  
+  /** 枚举选项（可选） */
+  options?: OptionDecl[];
 }
 
 /**

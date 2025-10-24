@@ -1,0 +1,21 @@
+{
+    "name": "Loop",
+    "type": "Composite",
+    "desc": "循环执行",
+    "input": [
+        {
+            "name": "loop_count",
+            "desc": "循环次数",
+            "type": "object_var",
+            "value_type": "int",
+            "optional": true
+        }
+    ],
+    "args": [
+        {
+            "name": "count",
+            "type": "int",
+            "desc": "循环次数"
+        }
+    ]
+}

@@ -5,6 +5,7 @@ import { Setup } from "./components/setup";
 import { Workspace } from "./components/workspace";
 import "./misc/i18n";
 import { themeConfig } from "./misc/theme";
+import { logDebug, logInfo } from "./misc/log";
 
 // 这里是应用的主入口文件（main.tsx）
 // 主要职责：
@@ -18,6 +19,12 @@ import { themeConfig } from "./misc/theme";
 // - Setup 用于环境初始化（如配置、检测依赖等）
 // - Workspace 是实际的主界面内容
 // - 最后 message 用于通知主进程移除加载动画
+
+// 添加启动日志测试
+console.log('=== 渲染进程启动测试 ===');
+logInfo('render', 'Renderer started');
+logDebug('render', 'Renderer boot logs enabled');
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <ConfigProvider theme={themeConfig}>

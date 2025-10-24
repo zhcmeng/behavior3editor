@@ -1,0 +1,14 @@
+{
+    "name": "Clear",
+    "type": "Action",
+    "desc": "清除变量",
+    "children": 0,
+    "output": [
+        {
+            "name": "cleared_var_name",
+            "desc": "清除的变量名",
+            "type": "object_var",
+            "value_type": "string"
+        }
+    ]
+}

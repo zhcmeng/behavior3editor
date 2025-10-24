@@ -1,0 +1,56 @@
+{
+    "name": "TestB3",
+    "type": "Action",
+    "desc": "等待",
+    "group": [
+        "Client",
+        "Server",
+        "Test"
+    ],
+    "args": [
+        {
+            "name": "time",
+            "desc": "时间",
+            "type": "int"
+        },
+        {
+            "name": "random",
+            "desc": "随机",
+            "type": "float?"
+        },
+        {
+            "name": "open",
+            "desc": "打开来",
+            "type": "boolean"
+        },
+        {
+            "name": "check",
+            "desc": "检查",
+            "type": "code"
+        },
+        {
+            "name": "name",
+            "desc": "检查",
+            "type": "string"
+        },
+        {
+            "name": "status",
+            "desc": "状态",
+            "type": "string",
+            "options": [
+                {
+                    "name": "成功",
+                    "value": "SUCCESS"
+                },
+                {
+                    "name": "失败",
+                    "value": "FAILURE"
+                },
+                {
+                    "name": "运行中",
+                    "value": "RUNNING"
+                }
+            ]
+        }
+    ]
+}

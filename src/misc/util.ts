@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import { type WorkspaceModel } from "../contexts/workspace-context";
-import { VarDecl, VERSION, type TreeData } from "./b3type";
+import { ArgType, ValueType, VarDecl, VERSION, type TreeData } from "./b3type";
 import { dfs } from "./b3util";
 import Path from "./path";
 
@@ -29,6 +29,15 @@ export const readTree = (path: string) => {
   data.vars = data.vars || data.declvar || [];
   data.root = data.root || {};
 
+  // 兼容旧版本：为变量添加默认类型
+  data.vars = data.vars.map(v => ({
+    name: v.name,
+    desc: v.desc,
+    type: v.type || ArgType.OBJECT_VAR,  // 默认为对象变量
+    value_type: v.value_type || ValueType.STRING,
+    value: v.value
+  }));
+
   // compatible with old version
   dfs(data.root, (node) => (node.id = node.id.toString()));
 
@@ -49,6 +58,11 @@ export const writeTree = (path: string, data: TreeData) => {
   });
 };
 
+/**
+ * 合并多个类名，过滤掉空字符串和布尔值 false
+ * @param cls 可以是字符串或布尔值的参数列表
+ * @returns 合并后的类名字符串
+ */
 export function mergeClassNames(...cls: (string | boolean)[]): string {
   return cls.filter((v) => !!v).join(" ");
 }

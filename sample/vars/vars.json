@@ -1,0 +1,44 @@
+{
+  "version": "1.8.5",
+  "name": "vars",
+  "desc": "通用参数",
+  "prefix": "",
+  "export": true,
+  "group": [],
+  "import": [],
+  "vars": [
+    {
+        "name": "next_think_wait",
+        "desc": "等待(ms)再次思考"
+    },
+    {
+        "name": "action_duration",
+        "desc": "总执行时间(ms)",
+        "type": "object_var"
+    },
+    {
+        "name": "next_action_wait",
+        "desc": "等待(ms)再次执行",
+        "type": "object_var"
+    },
+    {
+        "name": "home_distance",
+        "desc": "回家距离",
+        "type": "object_var"
+    },
+    {
+        "name": "born_xy",
+        "desc": "出生点坐标",
+        "type": "object_var"
+    },
+    {
+        "name": "home_path",
+        "desc": "回家路径",
+        "type": "object_var"
+    }
+  ],
+  "root": {
+    "id": "1",
+    "name": "Idle"
+  }
+}

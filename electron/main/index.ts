@@ -10,11 +10,38 @@
  */
 
 // ============ Electron 核心模块 ============
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, ipcMain, shell, dialog, Menu } from "electron";
+import * as remoteMain from '@electron/remote/main';
+remoteMain.initialize();
 // app: 控制应用程序的生命周期
 // BrowserWindow: 创建和管理窗口
 // ipcMain: 主进程的 IPC 通信模块
 // shell: 与系统 Shell 交互（打开文件、URL等）
+
+// ============ 日志模块 ============
+// 直接写入日志文件（主进程）
+function formatTimestamp(date: Date) {
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+function ensureLogFile() {
+    const dir = path.join(app.getPath('userData'), 'logs');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'debug.log');
+    if (!fs.existsSync(file)) fs.writeFileSync(file, '', 'utf8');
+    return file;
+}
+function writeMainLog(level: 'debug'|'info'|'warn'|'error', text: string) {
+    try {
+        const file = ensureLogFile();
+        const line = `[${formatTimestamp(new Date())}] [main] [${level}] ${text}\n`;
+        fs.appendFileSync(file, line, 'utf8');
+        if (level === 'error') console.error(text);
+        else if (level === 'warn') console.warn(text);
+        else console.log(text);
+    } catch {}
+}
+writeMainLog('info', 'Main process started');
 
 // ============ Node.js 核心模块 ============
 import * as fs from "fs"; // 文件系统操作
@@ -54,16 +81,16 @@ let buildHelp: boolean = false;        // -h/-v 参数：显示帮助信息
 // 解析命令行参数
 // process.argv 格式：[electron路径, 主文件路径, ...用户参数]
 for (let i = 0; i < argv.length; i++) {
-  const arg = argv[i];
-  if (arg === "-p") {
-    buildProject = argv[i + 1];  // 获取项目路径
-    i++;  // 跳过下一个参数（因为已经读取）
-  } else if (arg === "-o") {
-    buildOutput = argv[i + 1];   // 获取输出路径
-    i++;
-  } else if (arg === "-h" || arg === "-v") {
-    buildHelp = true;            // 显示帮助信息
-  }
+    const arg = argv[i];
+    if (arg === "-p") {
+        buildProject = argv[i + 1];  // 获取项目路径
+        i++;  // 跳过下一个参数（因为已经读取）
+    } else if (arg === "-o") {
+        buildOutput = argv[i + 1];   // 获取输出路径
+        i++;
+    } else if (arg === "-h" || arg === "-v") {
+        buildHelp = true;            // 显示帮助信息
+    }
 }
 
 // 测试用的硬编码路径（已注释）
@@ -74,11 +101,11 @@ for (let i = 0; i < argv.length; i++) {
  * 打印帮助信息
  */
 const printHelp = () => {
-  console.log(`Usage: Behavior3 Editor ${VERSION} [options]`);
-  console.log("Options:");
-  console.log("  -p <path>    Set the project path");
-  console.log("  -o <path>    Set the build output path");
-  console.log("  -h -v        Print this help");
+    console.log(`Usage: Behavior3 Editor ${VERSION} [options]`);
+    console.log("Options:");
+    console.log("  -p <path>    Set the project path");
+    console.log("  -o <path>    Set the build output path");
+    console.log("  -h -v        Print this help");
 };
 
 /**
@@ -90,72 +117,72 @@ const printHelp = () => {
  * 3. 退出应用（不打开 GUI）
  */
 if (buildOutput || buildProject || buildHelp) {
-  // 情况1：显示帮助信息
-  if (buildHelp) {
-    printHelp();
-    app.quit();
-    process.exit(1);
-  } 
-  // 情况2：参数不完整
-  else if (!buildOutput || !buildProject) {
-    console.error("build output or project is not set");
-    printHelp();
-    app.quit();
-    process.exit(1);
-  }
-  
-  // 情况3：执行批处理编译
-  try {
-    // 将路径转换为 POSIX 格式（统一使用 /）
-    const project = Path.posixPath(Path.resolve(buildProject!));
-    const buildDir = Path.posixPath(Path.resolve(buildOutput!));
-    console.log("start build project:", project);
-    
-    // 验证项目文件扩展名
-    if (!project.endsWith(".b3-workspace")) {
-      throw new Error(`'${project}' is not a workspace`);
+    // 情况1：显示帮助信息
+    if (buildHelp) {
+        printHelp();
+        app.quit();
+        process.exit(1);
     }
-    
-    // 获取工作目录（项目文件所在目录）
-    const workdir = Path.dirname(project);
-    
-    // 初始化工作目录（读取配置、节点定义等）
-    b3util.initWorkdir(workdir, (msg) => {
-      console.error(`${msg}`);
-    });
-    
-    // 禁用 debug 日志（批处理模式只显示关键信息）
-    console.debug = () => {};
-
-    // 扫描工作目录中的所有 JSON 文件（行为树文件）
-    const files = Path.ls(workdir, true);  // true: 递归扫描
-    for (const file of files) {
-      if (file.endsWith(".json")) {
-        // 记录文件的修改时间（用于增量编译）
-        const path = Path.relative(workdir, file).replaceAll(Path.sep, "/");
-        b3util.files[path] = fs.statSync(file).mtimeMs;
-      }
+    // 情况2：参数不完整
+    else if (!buildOutput || !buildProject) {
+        console.error("build output or project is not set");
+        printHelp();
+        app.quit();
+        process.exit(1);
     }
 
-    // 执行编译
-    const hasError = await b3util.buildProject(project, buildDir);
-    
-    if (hasError) {
-      console.error("build failed***");
-      app.quit();
-      process.exit(1);  // 返回错误码 1
-    } else {
-      console.log("build completed");
+    // 情况3：执行批处理编译
+    try {
+        // 将路径转换为 POSIX 格式（统一使用 /）
+        const project = Path.posixPath(Path.resolve(buildProject!));
+        const buildDir = Path.posixPath(Path.resolve(buildOutput!));
+        console.log("start build project:", project);
+
+        // 验证项目文件扩展名
+        if (!project.endsWith(".b3-workspace")) {
+            throw new Error(`'${project}' is not a workspace`);
+        }
+
+        // 获取工作目录（项目文件所在目录）
+        const workdir = Path.dirname(project);
+
+        // 初始化工作目录（读取配置、节点定义等）
+        b3util.initWorkdir(workdir, (msg) => {
+            console.error(`${msg}`);
+        });
+
+        // 禁用 debug 日志（批处理模式只显示关键信息）
+        console.debug = () => { };
+
+        // 扫描工作目录中的所有 JSON 文件（行为树文件）
+        const files = Path.ls(workdir, true);  // true: 递归扫描
+        for (const file of files) {
+            if (file.endsWith(".json")) {
+                // 记录文件的修改时间（用于增量编译）
+                const path = Path.relative(workdir, file).replaceAll(Path.sep, "/");
+                b3util.files[path] = fs.statSync(file).mtimeMs;
+            }
+        }
+
+        // 执行编译
+        const hasError = await b3util.buildProject(project, buildDir);
+
+        if (hasError) {
+            console.error("build failed***");
+            app.quit();
+            process.exit(1);  // 返回错误码 1
+        } else {
+            console.log("build completed");
+        }
+    } catch (error) {
+        console.error("build failed***");
+        app.quit();
+        process.exit(1);
     }
-  } catch (error) {
-    console.error("build failed***");
+
+    // 编译完成，退出应用
     app.quit();
-    process.exit(1);
-  }
-  
-  // 编译完成，退出应用
-  app.quit();
-  process.exit(0);  // 返回成功码 0
+    process.exit(0);  // 返回成功码 0
 }
 
 // ============================================
@@ -186,8 +213,8 @@ export const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL;
 // 开发模式：使用 public 目录
 // 生产模式：使用 dist 目录（资源会被复制过去）
 process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
-  ? path.join(process.env.APP_ROOT, "public")
-  : RENDERER_DIST;
+    ? path.join(process.env.APP_ROOT, "public")
+    : RENDERER_DIST;
 
 /**
  * 系统兼容性配置
@@ -210,8 +237,8 @@ if (process.platform === "win32") app.setAppUserModelId(app.getName());
  * - 已运行的实例会收到 'second-instance' 事件
  */
 if (!app.requestSingleInstanceLock()) {
-  app.quit();
-  process.exit(0);
+    app.quit();
+    process.exit(0);
 }
 
 // ============================================
@@ -223,8 +250,8 @@ if (!app.requestSingleInstanceLock()) {
  * 一个窗口对应一个工作区（项目）
  */
 interface Workspace {
-  projectPath?: string;    // 项目文件路径（.b3-workspace）
-  window: BrowserWindow;   // 对应的窗口实例
+    projectPath?: string;    // 项目文件路径（.b3-workspace）
+    window: BrowserWindow;   // 对应的窗口实例
 }
 
 // 预加载脚本路径
@@ -243,160 +270,154 @@ const windows: Workspace[] = [];
  * 1. 配置窗口选项（大小、样式、安全设置等）
  * 2. 加载页面（开发模式加载 Vite 服务器，生产模式加载静态文件）
  * 3. 注册事件监听器（加载完成、关闭等）
- * 4. 启用 @electron/remote（允许渲染进程调用主进程模块）
+ * 4. 设置窗口行为（外部链接处理等）
  */
 async function createWindow(projectPath?: string) {
-  const win = new BrowserWindow({
-    // 基础配置
-    title: "Behaviour3 Editor",
-    icon: Path.join(process.env.VITE_PUBLIC, "favicon.ico"),
-    
-    // 窗口样式：无边框 + 自定义标题栏
-    frame: false,                    // 隐藏系统默认边框
-    titleBarStyle: "hidden",         // 隐藏标题栏
-    titleBarOverlay:                 // 标题栏覆盖层配置
-      process.platform === "darwin"  // macOS
-        ? true                       // 使用默认样式
-        : { color: "#0d1117", height: 35, symbolColor: "#7d8590" },  // Windows/Linux
-    
-    // 窗口大小
-    width: 1280,
-    height: 800,
-    minHeight: 600,                  // 最小高度
-    minWidth: 800,                   // 最小宽度
-    
-    // 窗口控制按钮
-    closable: true,                  // 可关闭
-    minimizable: true,               // 可最小化
-    maximizable: true,               // 可最大化
-    
-    // 外观
-    backgroundColor: "#0d1117",      // 背景色（GitHub Dark 风格）
-    trafficLightPosition: { x: 10, y: 10 },  // macOS 红绿灯位置
-    
+    const win = new BrowserWindow({
+        // 基础配置
+        title: "Behaviour3 Editor",
+        icon: Path.join(process.env.VITE_PUBLIC, "favicon.ico"),
+
+        // 窗口样式：无边框 + 自定义标题栏
+        frame: false,                    // 隐藏系统默认边框
+        titleBarStyle: "hidden",         // 隐藏标题栏
+        titleBarOverlay:                 // 标题栏覆盖层配置
+            process.platform === "darwin"  // macOS
+                ? true                       // 使用默认样式
+                : { color: "#0d1117", height: 35, symbolColor: "#7d8590" },  // Windows/Linux
+
+        // 窗口大小
+        width: 1280,
+        height: 800,
+        minHeight: 600,                  // 最小高度
+        minWidth: 800,                   // 最小宽度
+
+        // 窗口控制按钮
+        closable: true,                  // 可关闭
+        minimizable: true,               // 可最小化
+        maximizable: true,               // 可最大化
+
+        // 外观
+        backgroundColor: "#0d1117",      // 背景色（GitHub Dark 风格）
+        trafficLightPosition: { x: 10, y: 10 },  // macOS 红绿灯位置
+
+        /**
+         * Web 偏好设置（安全性和功能）
+         * 
+         * ⚠️ 安全警告：
+         * 当前配置为了开发方便，禁用了上下文隔离和 Web 安全
+         * 生产环境应该：
+         * - nodeIntegration: false
+         * - contextIsolation: true
+         * - webSecurity: true
+         * - 使用 contextBridge 安全地暴露 API
+         */
+        webPreferences: {
+            preload,                       // 预加载脚本路径
+
+            // 安全设置（当前配置不安全，仅用于开发）
+            webSecurity: false,            // ❌ 禁用 Web 安全策略
+            nodeIntegration: true,         // ❌ 允许渲染进程使用 Node.js
+            contextIsolation: false,       // ❌ 禁用上下文隔离
+
+            // 推荐的安全配置（已注释）：
+            // webSecurity: true,
+            // nodeIntegration: false,
+            // contextIsolation: true,
+            // 然后在 preload 中使用 contextBridge.exposeInMainWorld() 暴露 API
+        },
+    });
+
+    // 启用 @electron/remote 以支持渲染进程访问主进程 API
+    try { remoteMain.enable(win.webContents); } catch {}
+
+    // 创建工作区对象并加入列表
+    const workspace = { projectPath, window: win, files: [] };
+    windows.push(workspace);
+
+    // 确保窗口可最大化
+    win.maximizable = true;
+
     /**
-     * Web 偏好设置（安全性和功能）
+     * 加载页面内容
      * 
-     * ⚠️ 安全警告：
-     * 当前配置为了开发方便，禁用了上下文隔离和 Web 安全
-     * 生产环境应该：
-     * - nodeIntegration: false
-     * - contextIsolation: true
-     * - webSecurity: true
-     * - 使用 contextBridge 安全地暴露 API
+     * 开发模式：连接到 Vite 开发服务器（支持热更新）
+     * 生产模式：加载静态 HTML 文件
      */
-    webPreferences: {
-      preload,                       // 预加载脚本路径
-      
-      // 安全设置（当前配置不安全，仅用于开发）
-      webSecurity: false,            // ❌ 禁用 Web 安全策略
-      nodeIntegration: true,         // ❌ 允许渲染进程使用 Node.js
-      contextIsolation: false,       // ❌ 禁用上下文隔离
-      
-      // 推荐的安全配置（已注释）：
-      // webSecurity: true,
-      // nodeIntegration: false,
-      // contextIsolation: true,
-      // 然后在 preload 中使用 contextBridge.exposeInMainWorld() 暴露 API
-    },
-  });
-
-  // 创建工作区对象并加入列表
-  const workspace = { projectPath, window: win, files: [] };
-  windows.push(workspace);
-
-  // 确保窗口可最大化
-  win.maximizable = true;
-
-  /**
-   * 加载页面内容
-   * 
-   * 开发模式：连接到 Vite 开发服务器（支持热更新）
-   * 生产模式：加载静态 HTML 文件
-   */
-  if (VITE_DEV_SERVER_URL) {
-    // 开发模式
-    win.loadURL(VITE_DEV_SERVER_URL);
-    // 自动打开开发者工具
-    win.webContents.openDevTools();
-  } else {
-    // 生产模式
-    win.maximize();                    // 最大化窗口
-    win.loadFile(indexHtml);           // 加载静态文件
-  }
-
-  /**
-   * 页面加载完成事件
-   * 
-   * 当 HTML 和 CSS 加载完成后触发
-   * 此时 React 应用开始初始化
-   */
-  win.webContents.on("did-finish-load", () => {
-    // 设置缩放比例为 100%（防止系统缩放影响）
-    win.webContents.setZoomFactor(1);
-
-    // 如果有多个窗口，聚焦最新的窗口
-    const nextWin = BrowserWindow.getAllWindows().at(-1);
-    if (nextWin) {
-      nextWin.focus();
-      // 通知渲染进程刷新应用菜单
-      nextWin.webContents.send("refresh-app-men");
-    }
-
-    // 聚焦当前窗口
-    win.focus();
-  });
-
-  /**
-   * 窗口关闭事件
-   * 
-   * 清理工作：
-   * 1. 从窗口列表中移除
-   * 2. 批处理模式下，最后一个窗口关闭时退出应用
-   */
-  win.on("closed", () => {
-    // 从窗口列表中移除
-    const index = windows.findIndex((w) => w.window === win);
-    windows.splice(index, 1);
-
-    // 批处理模式：所有窗口关闭后退出
-    if (buildOutput && buildProject && windows.length === 0) {
-      app.exit(0);
+    if (VITE_DEV_SERVER_URL) {
+        // 开发模式
+        win.loadURL(VITE_DEV_SERVER_URL);
+        // 自动打开开发者工具
+        win.webContents.openDevTools();
     } else {
-      // 清除批处理参数（允许正常使用 GUI）
-      buildOutput = undefined;
-      buildProject = undefined;
+        // 生产模式
+        win.maximize();                    // 最大化窗口
+        win.loadFile(indexHtml);           // 加载静态文件
     }
-  });
 
-  /**
-   * 外部链接处理
-   * 
-   * 当页面中的链接被点击时：
-   * - HTTPS 链接：在默认浏览器中打开
-   * - 其他链接：阻止打开（安全考虑）
-   */
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith("https:")) shell.openExternal(url);
-    return { action: "deny" };  // 阻止在应用内打开新窗口
-  });
+    /**
+     * 页面加载完成事件
+     * 
+     * 当 HTML 和 CSS 加载完成后触发
+     * 此时 React 应用开始初始化
+     */
+    win.webContents.on("did-finish-load", () => {
+        // 设置缩放比例为 100%（防止系统缩放影响）
+        win.webContents.setZoomFactor(1);
 
-  /**
-   * 启用 @electron/remote
-   * 
-   * 允许渲染进程直接调用主进程模块：
-   * - dialog: 对话框
-   * - BrowserWindow: 窗口操作
-   * - app: 应用信息
-   * - shell: 系统集成
-   * 
-   * ⚠️ 注意：这是一个便利功能，但有性能开销
-   * 推荐使用 IPC 通信代替
-   */
-  require("@electron/remote/main").enable(win.webContents);
+        // 如果有多个窗口，聚焦最新的窗口
+        const nextWin = BrowserWindow.getAllWindows().at(-1);
+        if (nextWin) {
+            nextWin.focus();
+            // 通知渲染进程刷新应用菜单
+            nextWin.webContents.send("refresh-app-men");
+        }
 
-  // 自动更新功能（已禁用）
-  // update(win);
+        // 聚焦当前窗口
+        win.focus();
+    });
+
+    /**
+     * 窗口关闭事件
+     * 
+     * 清理工作：
+     * 1. 从窗口列表中移除
+     * 2. 批处理模式下，最后一个窗口关闭时退出应用
+     */
+    win.on("closed", () => {
+        // 从窗口列表中移除
+        const index = windows.findIndex((w) => w.window === win);
+        windows.splice(index, 1);
+
+        // 批处理模式：所有窗口关闭后退出
+        if (buildOutput && buildProject && windows.length === 0) {
+            app.exit(0);
+        } else {
+            // 清除批处理参数（允许正常使用 GUI）
+            buildOutput = undefined;
+            buildProject = undefined;
+        }
+    });
+
+    /**
+     * 外部链接处理
+     * 
+     * 当页面中的链接被点击时：
+     * - HTTPS 链接：在默认浏览器中打开
+     * - 其他链接：阻止打开（安全考虑）
+     */
+    win.webContents.setWindowOpenHandler(({ url }) => {
+        if (url.startsWith("https:")) shell.openExternal(url);
+        return { action: "deny" };  // 阻止在应用内打开新窗口
+    });
+
+    /**
+     * 日志记录窗口创建
+     */
+    writeMainLog('info', `Window created for project: ${projectPath || 'new project'}`);
+
+    // 自动更新功能（已禁用）
+    // update(win);
 }
 
 // ============================================
@@ -410,10 +431,9 @@ async function createWindow(projectPath?: string) {
  * 这是创建窗口的最佳时机
  */
 app.whenReady().then(() => {
-  // 初始化 @electron/remote 模块
-  require("@electron/remote/main").initialize();
-  // 创建主窗口
-  createWindow();
+    // 创建主窗口前记录启动日志
+    writeMainLog('info', 'App ready, creating main window');
+    createWindow();
 });
 
 /**
@@ -426,7 +446,7 @@ app.whenReady().then(() => {
  * 点击 Dock 图标可以重新打开窗口
  */
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+    if (process.platform !== "darwin") app.quit();
 });
 
 /**
@@ -438,7 +458,7 @@ app.on("window-all-closed", () => {
  * 3. 创建新窗口或聚焦现有窗口
  */
 app.on("second-instance", () => {
-  createWindow();
+    createWindow();
 });
 
 /**
@@ -454,12 +474,12 @@ app.on("second-instance", () => {
  * - 如果没有窗口：创建新窗口
  */
 app.on("activate", () => {
-  const allWindows = BrowserWindow.getAllWindows();
-  if (allWindows.length) {
-    allWindows[0].focus();
-  } else {
-    createWindow();
-  }
+    const allWindows = BrowserWindow.getAllWindows();
+    if (allWindows.length) {
+        allWindows[0].focus();
+    } else {
+        createWindow();
+    }
 });
 
 // ============================================
@@ -491,26 +511,26 @@ app.on("activate", () => {
  *        └─ 3. 其他 ──> 创建新窗口
  */
 ipcMain.handle("open-win", (e, arg) => {
-  if (arg) {
-    // 情况1：检查项目是否已在某个窗口打开
-    let workspace = windows.find((v) => v.projectPath === arg);
-    if (workspace) {
-      workspace.window.focus();  // 聚焦已打开的窗口
-      return;
+    if (arg) {
+        // 情况1：检查项目是否已在某个窗口打开
+        let workspace = windows.find((v) => v.projectPath === arg);
+        if (workspace) {
+            workspace.window.focus();  // 聚焦已打开的窗口
+            return;
+        }
+
+        // 情况2：在当前窗口打开项目（如果当前窗口未打开项目）
+        workspace = windows.find((v) => v.window.webContents.id === e.sender.id);
+        if (workspace && !workspace.projectPath) {
+            workspace.projectPath = arg;
+            // 通知渲染进程打开项目
+            workspace.window.webContents.send("open-project", arg);
+            return;
+        }
     }
 
-    // 情况2：在当前窗口打开项目（如果当前窗口未打开项目）
-    workspace = windows.find((v) => v.window.webContents.id === e.sender.id);
-    if (workspace && !workspace.projectPath) {
-      workspace.projectPath = arg;
-      // 通知渲染进程打开项目
-      workspace.window.webContents.send("open-project", arg);
-      return;
-    }
-  }
-
-  // 情况3：创建新窗口
-  createWindow(arg);
+    // 情况3：创建新窗口
+    createWindow(arg);
 });
 
 /**
@@ -528,12 +548,12 @@ ipcMain.handle("open-win", (e, arg) => {
  * - 从文件管理器双击项目文件打开
  */
 ipcMain.handle("ready-to-show", (e) => {
-  // 根据 webContents ID 查找对应的工作区
-  const workspace = windows.find((v) => v.window.webContents.id === e.sender.id);
-  if (workspace && workspace.projectPath) {
-    // 通知渲染进程打开项目
-    workspace.window.webContents.send("open-project", workspace.projectPath);
-  }
+    // 根据 webContents ID 查找对应的工作区
+    const workspace = windows.find((v) => v.window.webContents.id === e.sender.id);
+    if (workspace && workspace.projectPath) {
+        // 通知渲染进程打开项目
+        workspace.window.webContents.send("open-project", workspace.projectPath);
+    }
 });
 
 /**
@@ -550,10 +570,10 @@ ipcMain.handle("ready-to-show", (e) => {
  * @param arg 文件路径
  */
 ipcMain.handle("trash-item", (_, arg) => {
-  // 统一路径分隔符（POSIX / -> 系统特定）
-  arg = arg.replace(/\//g, path.sep);
-  // 移动到回收站
-  shell.trashItem(arg).catch((e) => console.error(e));
+    // 统一路径分隔符（POSIX / -> 系统特定）
+    arg = arg.replace(/\//g, path.sep);
+    // 移动到回收站
+    shell.trashItem(arg).catch((e) => console.error(e));
 });
 
 /**
@@ -570,8 +590,151 @@ ipcMain.handle("trash-item", (_, arg) => {
  * @param arg 文件路径
  */
 ipcMain.handle("show-item-in-folder", (_, arg) => {
-  // 统一路径分隔符
-  arg = arg.replace(/\//g, path.sep);
-  // 在文件管理器中显示
-  shell.showItemInFolder(arg);
+    // 统一路径分隔符
+    arg = arg.replace(/\//g, path.sep);
+    // 在文件管理器中显示
+    shell.showItemInFolder(arg);
+});
+
+/**
+ * IPC 处理器：显示打开文件对话框
+ * 
+ * 渲染进程调用：ipcRenderer.invoke("show-open-dialog", options)
+ * 
+ * @param _ IPC 事件对象（未使用）
+ * @param options 对话框选项
+ */
+ipcMain.handle("show-open-dialog", async (_, options) => {
+    const result = await dialog.showOpenDialog(options);
+    return result.filePaths;
+});
+
+/**
+ * IPC 处理器：显示保存文件对话框
+ * 
+ * 渲染进程调用：ipcRenderer.invoke("show-save-dialog", options)
+ * 
+ * @param _ IPC 事件对象（未使用）
+ * @param options 对话框选项
+ */
+ipcMain.handle("show-save-dialog", async (_, options) => {
+    const result = await dialog.showSaveDialog(options);
+    return result;
+});
+
+/**
+ * IPC 处理器：获取应用路径
+ * 
+ * 渲染进程调用：ipcRenderer.invoke("get-app-path", name)
+ * 
+ * @param _ IPC 事件对象（未使用）
+ * @param name 路径名称（如 "userData", "appData" 等）
+ */
+ipcMain.handle("get-app-path", (_, name) => {
+    return app.getPath(name);
+});
+
+/**
+ * IPC 处理器：获取应用名称
+ * 
+ * 渲染进程调用：ipcRenderer.invoke("get-app-name")
+ */
+ipcMain.handle("get-app-name", async () => {
+    return app.name;
+});
+
+/**
+ * IPC 处理器：显示消息框
+ * 
+ * 渲染进程调用：ipcRenderer.invoke("show-message-box", options)
+ * 
+ * @param event IPC 事件对象
+ * @param options 消息框选项
+ */
+ipcMain.handle("show-message-box", async (event, options) => {
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    if (focusedWindow) {
+        return await dialog.showMessageBox(focusedWindow, options);
+    } else {
+        return await dialog.showMessageBox(options);
+    }
+});
+
+/**
+ * IPC 处理器：获取当前窗口的 webContents
+ * 
+ * 渲染进程调用：ipcRenderer.invoke("get-focused-window-webcontents")
+ */
+ipcMain.handle("get-focused-window-webcontents", async () => {
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    return focusedWindow?.webContents;
+});
+
+/**
+ * IPC 处理器：设置应用菜单
+ * 
+ * 渲染进程调用：ipcRenderer.invoke("set-application-menu", menuTemplate)
+ * 
+ * @param _ IPC 事件对象（未使用）
+ * @param menuTemplate 菜单模板
+ */
+ipcMain.handle("set-application-menu", async (_, menuTemplate) => {
+    const menu = Menu.buildFromTemplate(menuTemplate);
+    Menu.setApplicationMenu(menu);
+});
+
+/**
+ * IPC 处理器：切换窗口全屏状态
+ * 
+ * 渲染进程调用：ipcRenderer.invoke("toggle-fullscreen")
+ */
+ipcMain.handle("toggle-fullscreen", async () => {
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    if (focusedWindow) {
+        const isFullScreen = focusedWindow.isFullScreen();
+        focusedWindow.setFullScreen(!isFullScreen);
+        return !isFullScreen;
+    }
+    return false;
+});
+
+/**
+ * IPC 处理器：设置缩放因子
+ * 
+ * 渲染进程调用：ipcRenderer.invoke("set-zoom-factor", factor)
+ */
+ipcMain.handle("set-zoom-factor", async (_, factor: number) => {
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    if (focusedWindow) {
+        focusedWindow.webContents.setZoomFactor(factor);
+        return true;
+    }
+    return false;
+});
+
+/**
+ * IPC 处理器：获取缩放因子
+ * 
+ * 渲染进程调用：ipcRenderer.invoke("get-zoom-factor")
+ */
+ipcMain.handle("get-zoom-factor", async () => {
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    if (focusedWindow) {
+        return focusedWindow.webContents.getZoomFactor();
+    }
+    return 1;
+});
+
+/**
+ * IPC 处理器：打开开发者工具
+ * 
+ * 渲染进程调用：ipcRenderer.invoke("open-dev-tools")
+ */
+ipcMain.handle("open-dev-tools", async () => {
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    if (focusedWindow) {
+        focusedWindow.webContents.openDevTools();
+        return true;
+    }
+    return false;
 });

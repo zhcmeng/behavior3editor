@@ -1,0 +1,25 @@
+{
+    "name": "GoHome",
+    "type": "Action",
+    "desc": "回家",
+    "input": [
+        {
+            "name": "home_path",
+            "desc": "回家路径",
+            "type": "object_var",
+            "value_type": "array"
+        }
+    ],
+    "args": [
+        {
+            "name": "action_duration",
+            "desc": "总执行时间(ms)",
+            "type": "code?"
+        },
+        {
+            "name": "next_action_wait",
+            "desc": "等待(ms)再次执行",
+            "type": "code?"
+        }
+    ]
+}

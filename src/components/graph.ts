@@ -26,11 +26,10 @@ import {
     IPointerEvent as IG6PointerEvent,
     treeToGraphData,
 } from "@antv/g6";
-import { dialog } from "@electron/remote";
 import assert from "assert";
-import { clipboard } from "electron";
+import { clipboard, ipcRenderer } from "electron";
 import * as fs from "fs";
-import { ObjectType } from "../behavior3/src/behavior3";
+import { ObjectType } from "../misc/b3type";
 import { EditNode, EditorStore, EditTree, useWorkspace } from "../contexts/workspace-context";
 import { ImportDecl, isExprType, NodeData, TreeData, VarDecl } from "../misc/b3type";
 import * as b3util from "../misc/b3util";
@@ -474,23 +473,23 @@ export class Graph {
       const states: TreeNodeState[] = [];
 
       for (const v of node.input ?? []) {
-        if (highlight.includes(v)) {
+        if (highlight.includes(v.name)) {
           states.push("highlightinput");
           break;
         }
       }
 
       for (const v of node.output ?? []) {
-        if (highlight.includes(v)) {
+        if (highlight.includes(v.name)) {
           states.push("highlightoutput");
           break;
         }
       }
 
       const def = b3util.nodeDefs.get(node.name);
-      loop: for (const arg of def.args ?? []) {
-        if (isExprType(arg.type)) {
-          const expr = node.args?.[arg.name] as string | string[] | undefined;
+      loop: for (const [i, arg] of (def.args ?? []).entries()) {
+        if (arg.value_type && isExprType(arg.value_type)) {
+          const expr = node.args?.[i]?.value as string | string[] | undefined;
           if (typeof expr === "string") {
             for (const v of b3util.parseExpr(expr)) {
               if (highlight.includes(v)) {
@@ -609,7 +608,7 @@ export class Graph {
         }
         if (!found && node.input) {
           for (const str of node.input) {
-            if (this._includeString(str, option)) {
+            if (this._includeString(str.name, option)) {
               found = true;
               break;
             }
@@ -635,7 +634,7 @@ export class Graph {
         }
         if (!found && node.output) {
           for (const str of node.output) {
-            if (this._includeString(str, option)) {
+            if (this._includeString(str.name, option)) {
               found = true;
               break;
             }
@@ -676,7 +675,14 @@ export class Graph {
     for (let i = 0; i < max; i++) {
       const v1: VarDecl | undefined = this.editor.declare.vars[i];
       const v2: VarDecl | undefined = editTree.vars[i];
-      if (v1?.name !== v2?.name || v1?.desc !== v2?.desc) {
+      
+      // 比较所有字段
+      const isEqual = v1?.name === v2?.name && 
+                      v1?.desc === v2?.desc &&
+                      v1?.type === v2?.type &&
+                      v1?.value === v2?.value;
+      
+      if (!isEqual) {
         return true;
       }
     }
@@ -802,11 +808,11 @@ export class Graph {
     if (originalTarget.className === "input-text") {
       const node = this._graph.getNodeData(e.target.id);
       const data = node.data as unknown as NodeData;
-      data.input?.forEach((v) => v && names.push(v));
+      data.input?.forEach((v) => v && names.push(v.name));
     } else if (originalTarget.className === "output-text") {
       const node = this._graph.getNodeData(e.target.id);
       const data = node.data as unknown as NodeData;
-      data.output?.forEach((v) => v && names.push(v));
+      data.output?.forEach((v) => v && names.push(v.name));
     }
     this.clickVar(...names);
     this.selectNode(e.target.id);
@@ -1370,7 +1376,7 @@ export class Graph {
       return;
     }
 
-    const ret = await dialog.showSaveDialog({
+    const ret = await ipcRenderer.invoke("show-save-dialog", {
       defaultPath: workspace.workdir.replaceAll("/", Path.sep),
       properties: ["showOverwriteConfirmation"],
       filters: [{ name: "Json", extensions: ["json"] }],

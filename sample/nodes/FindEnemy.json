@@ -1,0 +1,41 @@
+{
+    "name": "FindEnemy",
+    "type": "Condition",
+    "desc": "查找敌人",
+    "doc": "+ 没找到返回失败\n",
+    "output": [
+        {
+            "name": "target_unit",
+            "desc": "目标单位",
+            "type": "object_var",
+            "value_type": "object"
+        }
+    ],
+    "args": [
+        {
+            "name": "x",
+            "desc": "x",
+            "type": "int?"
+        },
+        {
+            "name": "y",
+            "desc": "y",
+            "type": "int?"
+        },
+        {
+            "name": "w",
+            "desc": "宽",
+            "type": "int?"
+        },
+        {
+            "name": "h",
+            "desc": "高",
+            "type": "int?"
+        },
+        {
+            "name": "count",
+            "desc": "查找上限",
+            "type": "string?"
+        }
+    ]
+}

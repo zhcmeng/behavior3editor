@@ -1,0 +1,13 @@
+{
+    "name": "GetHomeDistance",
+    "type": "Action",
+    "desc": "获取回家距离",
+    "output": [
+        {
+            "name": "home_distance",
+            "desc": "回家距离",
+            "type": "object_var",
+            "value_type": "int"
+        }
+    ]
+}

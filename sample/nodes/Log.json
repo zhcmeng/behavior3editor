@@ -1,0 +1,12 @@
+{
+    "name": "Log",
+    "type": "Action",
+    "desc": "打印日志",
+    "args": [
+        {
+            "name": "message",
+            "type": "string",
+            "desc": "日志"
+        }
+    ]
+}

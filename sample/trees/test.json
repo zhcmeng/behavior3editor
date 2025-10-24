@@ -1,0 +1,122 @@
+{
+  "version": "1.8.5",
+  "name": "test",
+  "desc": "",
+  "prefix": "",
+  "export": true,
+  "group": [],
+  "import": [
+    "cfgs/cfg.json",
+    "vars/vars.json"
+  ],
+  "vars": [],
+  "root": {
+    "id": "1",
+    "name": "Selector",
+    "input": [],
+    "output": [],
+    "args": [],
+    "children": [
+      {
+        "id": "2",
+        "name": "Sequence",
+        "input": [],
+        "output": [],
+        "args": [],
+        "children": [
+          {
+            "id": "3",
+            "name": "GetHomeDistance",
+            "input": [],
+            "output": [
+              {
+                "name": "home_distance",
+                "desc": "回家距离",
+                "type": "object_var",
+                "value_type": "float"
+              }
+            ],
+            "args": []
+          },
+          {
+            "id": "4",
+            "name": "Cmp",
+            "args": [
+              {
+                "name": "home_distance",
+                "type": "object_var"
+              },
+              ">",
+              {
+                "name": "max_trace_distance",
+                "type": "cfg_var"
+              }
+            ]
+          },
+          {
+            "id": "5",
+            "name": "GetBornXY",
+            "input": [],
+            "output": [
+              {
+                "name": "born_xy",
+                "desc": "出生坐标",
+                "type": "object_var",
+                "value_type": "json"
+              }
+            ],
+            "args": []
+          },
+          {
+            "id": "6",
+            "name": "GetHomePath",
+            "input": [
+              {
+                "name": "born_xy",
+                "desc": "出生坐标",
+                "type": "object_var",
+                "value_type": "json"
+              }
+            ],
+            "output": [
+              {
+                "name": "home_path",
+                "desc": "回家路径",
+                "type": "object_var",
+                "value_type": "json"
+              }
+            ],
+            "args": []
+          },
+          {
+            "id": "7",
+            "name": "GoHome",
+            "input": [
+              {
+                "name": "home_path",
+                "desc": "回家路径",
+                "type": "object_var",
+                "value_type": "json"
+              }
+            ],
+            "output": [],
+            "args": [
+              {
+                "name": "action_duration",
+                "desc": "动作持续时间",
+                "type": "object_var",
+                "value_type": "float"
+              },
+              {
+                "name": "next_action_wait",
+                "desc": "下次动作等待时间",
+                "type": "object_var",
+                "value_type": "float"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

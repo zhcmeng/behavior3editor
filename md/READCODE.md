@@ -805,22 +805,22 @@ useEffect(() => {
 2. **根据参数类型渲染不同控件**
 ```typescript
 // 数字类型 → InputNumber
-if (isIntType(arg.type) || isFloatType(arg.type)) {
+if (isIntType(arg.value_type) || isFloatType(arg.value_type)) {
   return <InputNumber value={value} onChange={...} />;
 }
 
 // 字符串类型 → Input
-if (isStringType(arg.type)) {
+if (isStringType(arg.value_type)) {
   return <Input value={value} onChange={...} />;
 }
 
 // 布尔类型 → Switch
-if (isBoolType(arg.type)) {
+if (isBoolType(arg.value_type)) {
   return <Switch checked={value} onChange={...} />;
 }
 
 // 表达式类型 → TextArea（带语法检查）
-if (isExprType(arg.type)) {
+if (isExprType(arg.value_type)) {
   return <TextArea value={value} onChange={...} />;
 }
 
@@ -1589,9 +1589,9 @@ if (workspace.editingNodeDef) {
 #### 参数控件映射
 
 ```typescript
-// 根据 NodeDef.args[i].type 决定显示什么控件
+// 根据 NodeDef.args[i].value_type 决定显示什么控件
 
-switch (arg.type) {
+switch (arg.value_type) {
   case "int":
   case "float":
     return <InputNumber />;      // 数字输入
@@ -1616,7 +1616,7 @@ switch (arg.type) {
 }
 
 // 如果是数组类型（如 int[]）
-if (isArray(arg.type)) {
+if (isArray(arg.value_type)) {
   // 渲染可添加/删除的列表
   return (
     <Form.List>

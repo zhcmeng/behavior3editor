@@ -1,0 +1,13 @@
+{
+    "name": "GetBornXY",
+    "type": "Action",
+    "desc": "获取出生点坐标",
+    "output": [
+        {
+            "name": "born_position",
+            "desc": "出生点坐标",
+            "type": "object_var",
+            "value_type": "object"
+        }
+    ]
+}
